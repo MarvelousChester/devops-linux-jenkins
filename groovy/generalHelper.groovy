@@ -196,19 +196,19 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     echo "Attempting to publish results to web server"
     def destinationDir = buildNumber ? "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/Build-${buildNumber}/${reportType}-report" : "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/${reportType}-report"
 
-     sh """ssh vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
+     sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
     \"mkdir -p ${destinationDir} \
     && sudo chown vconadmin:vconadmin ${destinationDir} \
     && sudo chmod 755 /var/www/html/${remoteProjectFolderName} \
     && sudo chmod -R 755 /var/www/html/${remoteProjectFolderName}/Reports \""""
 
-    sh "scp -i C:/Users/ci-catherine/.ssh/vconkey1.pem -rp \"${reportDir}/*\" \
+    sh "scp -i ~/.ssh/vconkey.pem -rp \"${reportDir}/*\" \
     \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}\""
 }
 
 // Deletes a branch's reports from the web server after it has been merged.
 def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber) {
-    sh """ssh vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
+    sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
     \"sudo rm -r -f /var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}\""""
 }
 
