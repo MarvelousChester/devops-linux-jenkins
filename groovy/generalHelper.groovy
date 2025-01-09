@@ -202,7 +202,7 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     && sudo chmod 755 /var/www/html/${remoteProjectFolderName} \
     && sudo chmod -R 755 /var/www/html/${remoteProjectFolderName}/Reports \""""
 
-    sh "scp -i ~/.ssh/vconkey.pem -rp \"${reportDir}/*\" \
+    sh "scp -i ~/.ssh/vconkey.pem -rp \"${reportDir}/\" \
     \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}\""
 }
 

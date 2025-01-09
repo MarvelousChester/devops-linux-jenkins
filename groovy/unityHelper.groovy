@@ -167,12 +167,12 @@ def buildProject(reportDir, projectDir, unityExecutable) {
 def postBuild(status) {
     // sh "python -u \'${env.WORKSPACE}/python/create_log_report.py\'"
 
-    sh """ssh vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
+    sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
     \"sudo mkdir -p /var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER} \
     && sudo chown vconadmin:vconadmin /var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER}\""""
 
     if (fileExists("${env.REPORT_DIR}/logs.html")) {
-        sh "scp -i C:/Users/ci-catherine/.ssh/vconkey1.pem -rp \"${env.REPORT_DIR}/logs.html\" \
+        sh "scp -i ~/.ssh/vconkey.pem -rp \"${env.REPORT_DIR}/logs.html\" \
     \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:/var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER}\""
     }
 }

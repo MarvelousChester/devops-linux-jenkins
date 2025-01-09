@@ -103,6 +103,7 @@ try:
     response.raise_for_status()
 except requests.exceptions.RequestException as e:
     print(f"Initial Request: {e.request.body}")
+    print(f"Request Headers: {e.request.headers}") 
     print(f"Response Error: {json.dumps(e.response.json())}")
     exit(1)
 

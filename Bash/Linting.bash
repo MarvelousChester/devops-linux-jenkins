@@ -14,8 +14,13 @@ fi
 echo "Linting started with args: $1 $2"
 
 # Check if dotnet is installed
-if ! command -v dotnet &> /dev/null; then
+DOTNET_PATH=$(command -v dotnet)
+if [ -z "$DOTNET_PATH" ]; then
+    echo "PATH: $PATH"
     error_exit "Error: dotnet is not installed or not found in PATH."
+else
+    echo "dotnet is installed at: $DOTNET_PATH"
+    echo "dotnet version: $(dotnet --version)"
 fi
 
 # Check if dotnet-format is installed

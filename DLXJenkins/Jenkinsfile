@@ -47,7 +47,7 @@ pipeline {
         REPORT_DIR = "${WORKSPACE}/PRJob/${PR_BRANCH}"
         JOB_REPO = "${PR_REPO_HTML}"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
-        // JENKINS_API_KEY = credentials('jenkins-api-key')
+        JENKINS_API_KEY = credentials('jenkins-api-key')
         REPO_SSH = "git@bitbucket.org:${PR_PROJECT}.git"
         DESTINATION_BRANCH = "${PR_DESTINATION_BRANCH}"
     }
