@@ -46,59 +46,79 @@ def getUnityExecutable(workspace, projectDir) {
 
 // Runs a Unity project's tests of a specified type, while also allowing optional code coverage and test reporting.
 def runUnityTests(unityExecutable, reportDir, projectDir, testType, enableReporting, deploymentBuild) {
-    //setup for commands/executable
- 
+    // Define the log file path for the test results
     def logFile = "${reportDir}/test_results/${testType}-tests.log"
- 
-    def reportSettings = ""
     
-    if(enableReporting){
-        reportSettings = """ \
-        -testResults \"${reportDir}/test_results/${testType}-results.xml\" \
-        -debugCodeOptimization \
-        -enableCodeCoverage \
-        -coverageResultsPath \"${REPORT_DIR}/coverage_results\" \
-        -coverageOptions \"useProjectSettings\""""
-    }else{
-        reportSettings = """ \
-        -testResults \"${reportDir}/test_results/${testType}-results.xml\" \
-        -debugCodeOptimization"""
-    }
- 
-    def flags = "-projectPath \"${projectDir}\" \
-        -batchmode \
-        -testPlatform ${testType} \
-        -runTests \
-        -logFile \"${logFile}\"${reportSettings}"
-
-    // Allows only PlayMode to run with graphics enabled
-    if(testType == "EditMode"){
-        flags += " -nographics"
+    // Function to get report settings based on whether reporting is enabled
+    def getReportSettings = { rDir, tType, eReporting ->
+        if (eReporting) {
+            // Return settings for test results, code optimization, and code coverage
+            return """ \
+            -testResults ${rDir}/test_results/${tType}-results.xml \
+            -debugCodeOptimization \
+            -enableCodeCoverage \
+            -coverageResultsPath ${rDir}/coverage_results \
+            -coverageOptions useProjectSettings"""
+        } else {
+            // Return settings for test results and code optimization only
+            return """ \
+            -testResults ${rDir}/test_results/${tType}-results.xml \
+            -debugCodeOptimization"""
+        }
     }
 
-    if(testType == "PlayMode"){
-        flags += " -testCategory BuildServer"
+    // Function to construct flags for the Unity test execution command
+    def getFlags = { pDir, tType, lFile, rSettings ->
+        def flags = "-projectPath ${pDir} \
+            -batchmode \
+            -testPlatform ${tType} \
+            -runTests \
+            -logFile ${lFile}${rSettings}"
+
+        // Add specific flags based on the test type
+        if (tType == "EditMode") {
+            flags += " -nographics"
+        } else if (tType == "PlayMode") {
+            flags += " -testCategory BuildServer"
+        }
+        return flags
+    }
+
+    // Function to handle the exit code from the Unity test execution
+    def handleExitCode = { eCode, dBuild ->
+        if (eCode != 0) {
+            if (dBuild) {
+                // If deployment build, fail the build with an error
+                error("Test failed with exit code ${eCode}. Check the log file for more details.")
+                sh "exit ${eCode}"
+            }
+            // Catch error and mark the build as failed
+            catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                error("Test failed with exit code ${eCode}. Check the log file for more details.")
+            }
+        }
+    }
+
+    // Get the report settings based on the parameters
+    def reportSettings = getReportSettings(reportDir, testType, enableReporting)
+    // Get the flags for the Unity command
+    def flags = getFlags(projectDir, testType, logFile, reportSettings)
+
+    def exitCode = "";
+    // Execute Unity tests based on the test type
+    if (testType == "EditMode") {
+        exitCode = sh(script: """${unityExecutable} ${flags}""", returnStatus: true)
+    }
+    else if (testType == "PlayMode") {
+        // Use xvfb-run for PlayMode tests to handle graphical requirements
         unityExecutable = "/usr/bin/xvfb-run -a ${unityExecutable}"
+        exitCode = sh(script: """${unityExecutable} ${flags}""", returnStatus: true)
     }
-    echo "------------------------------------------------"
-    echo "Unity Executable: ${unityExecutable}"
-    echo "------------------------------------------------"
-    echo "Flags set to: ${flags}"
-    echo "------------------------------------------------"
 
-    def exitCode = sh (script: """\"${unityExecutable}\" \
-        ${flags}""", returnStatus: true)
-
-    if ((exitCode != 0)) {
-        if(deploymentBuild){
-            error("Test failed with exit code ${exitCode}. Check the log file for more details.")
-            sh "exit ${exitCode}"
-        }
-        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE'){
-            error("Test failed with exit code ${exitCode}. Check the log file for more details.")
-        }
-    }
+    // Handle the exit code from the test execution
+    handleExitCode(exitCode, deploymentBuild)
 }
+
 
 // Converts a Unity test result XML file to an HTML file.
 def convertTestResultsToHtml(reportDir, testType) {
