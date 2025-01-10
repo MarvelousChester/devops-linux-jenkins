@@ -60,14 +60,16 @@ def initializeEnvironment(String workspace, String commitHash, String prBranch, 
 def checkoutBranch(String projectDir, String prBranch) {
     dir(projectDir) {
         echo "Checking out branch ${prBranch}..."
-        def branchExists = sh(script: "git show-ref --verify --quiet refs/heads/${prBranch} || git show-ref --verify --quiet refs/remotes/origin/${prBranch}", returnStatus: true) == 0
+        boolean branchExists = sh(script: "git show-ref --verify --quiet refs/heads/${prBranch} || git show-ref --verify --quiet refs/remotes/origin/${prBranch}", returnStatus: true) == 0
         if (!branchExists) {
             error "Branch ${prBranch} does not exist locally or remotely."
         }
-        //Clean up before checkout
-        sh "git reset --hard"
-        //checkout
-        sh "git checkout ${prBranch}"
+        // Clean up added and modified before checkout
+        sh 'git reset --hard'
+        // Clean up all untracked files before checkout
+        sh 'git clean -fd'
+        // checkout
+        sh "git checkout ${targetBranch}"
     }
 }
 
@@ -213,82 +215,100 @@ def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber)
 }
 
 def cleanUpPRBranch(String prBranch) {
-    // Find the branch path
-    def branchPath = sh(script: "/usr/bin/find ../ -type d -name \"${prBranch}\"", returnStdout: true).trim()
-
-    if (!branchPath.isEmpty()) {
-        // Print the path of branch path trying to delete
-        echo "Branch Path: ${branchPath}"
-
-        try{
-            // Check whether there are open files in the target directory
-            def openFiles = bat(script: "handle.exe ${prBranch}", returnStdout: true).trim()
-        
-            if (!openFiles.isEmpty()) {
-                echo "Open files found in the directory: ${branchPath}"
-                echo "List of opened files:"
-                echo "${openFiles}"
-
-                // Extract unique PIDs from the open files
-                // 1. Extract PID list for each line
-                // 2. Extract only lines that contain "pid" from the extracted lines
-                // 3. Recursively find all elements in the extracted string that contain "pid:" followed by a space " " and then a "number"
-                //      >> Exclude the elements which have 'explorer.exe'. It should not be terminated
-                // 4. If matching succeeds, returns PID, otherwise null
-                def pids = openFiles.split('\n').findAll { it.contains('pid:') && !it.contains('explorer.exe')  && it.contains("${prBranch}")}.collect { line ->
-                    def match = line =~ /pid:\s+(\d+)/
-                    return match ? match[0][1] : null
-                }.unique()
-
-                // Print the PIDs
-                echo "List of PIDs of open log files at the \"${prBranch}\": ${pids}"
-
-                // Forcefully terminate the processes
-                pids.each { pid -> 
-                    if (pid) { 
-                        // Check whether the target PID still exists or not
-                        // This PowerShell script combines two operations:
-                        // 1. Get process information by PID using 'Get-Process'
-                        //    >> If no process is associated with the specified PID, it returns nothing because of the "-ErrorAction SilentlyContinue" flag
-                        // 2. Extract the PID from the 'Get-Process' result
-                        //    >> The output of 'Get-Process' is passed through the pipeline ('|')
-                        //    >> The 'Id' property is extracted from the current object ('$_'), which is provided by the 'Get-Process' result
-                        // 
-                        // Therefore:
-                        // - If the process associated with the specified PID exists, this script will return the PID (e.g., "0000")
-                        // - If no process is associated with the specified PID, the script will return an empty result
-                        echo "Checking whether the target PID still exists or not..."
-                        def pidExists = bat(script: 'powershell -Command "Get-Process -Id ${pid} -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }"', returnStdout: true).trim()
-
-                        if (!pidExists.isEmpty()) {
-                            // Terminate the process using pid
-                            echo "PID ${pid} exists. Proceeding to terminate."
-                            bat(script: "taskkill /PID ${pid} /F") 
-                            echo "Terminated PID: ${pid}" 
-                        } else {
-                            echo "PID ${pid} does not exist. Skipping termination."
-                        }
-                    }
-                }
-            } 
+    // Find the path of 'find' directory searching tool
+    def findPath = sh(script: "which find", returnStdout: true).trim()
+    if (findPath != 0) {
+        echo "'find' directory searching tool is not found..."
+        echo "Installing 'find' directory searching tool..."
+        // install 'find' Linux seaching tool
+        int installStatus = sh(script: 'sudo apt-get update && sudo apt-get install -y findutils', returnStatus: true)
+        if (installStatus == 0 ) {
+            echo "The 'findutils' package was installed successfully."
+        } else {
+            echo "Failed to install 'findutils'. Exit code: ${installStatus}"
+            error "Installation failed with exit code: ${installStatus}"
         }
-        catch (Exception e){
-            echo "Command failed with error: ${e.message}"
-            if (e.message.contains("script returned exit code 1")) {
-                // This part will be executed if there is no open file at the target PR directory
-                echo "Exit code 1 detected. Likely 'No matching handles found'."
-                echo "No open files found in the directory: ${branchPath} Proceeding."
+    }
+
+   // Find the branch path
+    def branchPaths = sh(script: "${findPath} ../ -type d -name \"${prBranch}\"", returnStdout: true).trim()
+    if (!branchPaths.isEmpty()) {
+        // Split paths into an array
+        def paths = branchPaths.split('\n')
+
+        paths.each { branchPath ->
+            // Print the path of the branch directory being deleted
+            echo "Deleting Branch Path: ${branchPath}"
+
+            // Safely delete the branch path
+            sh(script: "rm -r -f \"${branchPath}\"", returnStatus: true)
+
+            // Safely delete the @tmp directory if it exists
+            def tmpPath = "${branchPath}@tmp"
+            if (sh(script: "test -d \"${tmpPath}\"", returnStatus: true) == 0) {
+                echo "Deleting temporary path: ${tmpPath}"
+                sh(script: "rm -r -f \"${tmpPath}\"", returnStatus: true)
             } else {
-                throw e // Unexpected Error
+                echo "Temporary path not found: ${tmpPath}"
             }
         }
-        
+    } else {
+        echo "No branch path found for ${prBranch}. Nothing to delete."
+    } 
+}
 
-        // Clean up the PRJob/{PR_BRANCH} directory
-        sh "rm -r -f \"${branchPath}\""
-        sh "rm -r -f \"${branchPath}@tmp\""
-        
+void closeLogfiles(String branchPath) {
+    try {
+        // Check whether there are open files in the target directory
+        def openFiles = sh(script: "lsof +D ${branchPath}", returnStdout: true).trim()
+
+        if (!openFiles.isEmpty()) {
+            echo "Open files found in the directory: ${branchPath}"
+            echo "List of opened files:"
+            echo "${openFiles}"
+
+            // Extract unique PIDs from the open files
+            def pids = openFiles.split('\n').findAll { 
+                it.contains('pid:') && it.contains("${prBranch}") // Filtering lines related to the target branch
+            }.collect { line ->
+                def match = line =~ /\b(\d+)\b/ // Regex to extract PIDs
+                return match ? match[0][1] : null
+            }.unique()
+
+            // Print the PIDs
+            echo "List of PIDs of open log files at the \"${prBranch}\": ${pids}"
+
+            // Forcefully terminate the processes
+            pids.each { pid -> 
+                if (pid) {
+                    // Check whether the target PID still exists or not
+                    echo "Checking whether the target PID still exists or not..."
+                    def pidExists = sh(script: "ps -p ${pid} -o pid=", returnStatus: true) == 0
+                    if (pidExists) {
+                        // Terminate the process using pid
+                        echo "PID ${pid} exists. Proceeding to terminate."
+                        sh(script: "kill -9 ${pid}")
+                        echo "Terminated PID: ${pid}"
+                    } else {
+                        echo "PID ${pid} does not exist. Skipping termination."
+                    }
+                }
+            }
+        } else {
+            echo "No open files found in the directory: ${branchPath}"
+        }
+    } 
+    catch (Exception e) {
+        echo "Command failed with error: ${e.message}"
+        if (e.message.contains("script returned exit code 1")) {
+            // This part will be executed if there is no open file at the target PR directory
+            echo "Exit code 1 detected. Likely 'No matching handles found'."
+            echo "No open files found in the directory: ${branchPath} Proceeding."
+        } else {
+            throw e // Unexpected Error
+        }
     }
 }
+
 
 return this
