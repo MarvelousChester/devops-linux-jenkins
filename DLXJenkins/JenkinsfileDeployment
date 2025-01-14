@@ -38,8 +38,9 @@ pipeline {
 
     environment {
         CI_PIPELINE = "false"
-        PROJECT_DIR = "${WORKSPACE}/Unity_Project"
-        REPORT_DIR = "${WORKSPACE}/DeploymentJob"
+        PROJECT_TYPE = "Unity_Project"
+        PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
+        REPORT_DIR = "${env.WORKSPACE}/DeploymentJob"
         JOB_REPO = "${PR_REPO_HTML}"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
         DESTINATION_BRANCH = "${PR_DESTINATION_BRANCH}"
@@ -59,8 +60,8 @@ pipeline {
                         error(env.FAILURE_REASON)
                     }
 
-                    generalUtil = load("${WORKSPACE}/groovy/generalHelper.groovy")
-                    unityUtil = load("${WORKSPACE}/groovy/unityHelper.groovy")
+                    generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                    unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
 
                     generalUtil.cleanUpPRBranch(PR_BRANCH)
 
@@ -70,9 +71,9 @@ pipeline {
                 }
             }
         }
-        // Prepares the workspace for the build by cleaning the project, pulling main, and then telling Bitbucket that the
+        // Prepares the WORKSPACE for the build by cleaning the project, pulling main, and then telling Bitbucket that the
         // build is in progress. It also checks to see if the project's Unity version is downloaded, and installs it if not.
-        stage ('Prepare Workspace') {
+        stage ('Prepare WORKSPACE') {
             environment {
                 REPO_SSH = "git@bitbucket.org:${PR_PROJECT}.git"
             }
@@ -80,7 +81,7 @@ pipeline {
                 script {
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
                     script {
-                        env.COMMIT_HASH = generalUtil.getFullCommitHash(WORKSPACE, PR_COMMIT)
+                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
                         //env.COMMIT_HASH = "${sh (script: "git log -n 1 --pretty=format:\"%H\"", returnStdout: true)}"
                     }
 
@@ -102,10 +103,10 @@ pipeline {
 
                 script {
                     echo "Sending \'In Progress\' status to Bitbucket..."
-                    generalUtil.sendBuildStatus(WORKSPACE, "INPROGRESS", COMMIT_HASH)
+                    generalUtil.sendBuildStatus(env.WORKSPACE, "INPROGRESS", COMMIT_HASH)
 
                     echo "Identifying Unity version..."
-                    env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(WORKSPACE, PROJECT_DIR)
+                    env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
                 }
 
                 // Initial running the project on Unity Editor    
@@ -138,8 +139,8 @@ pipeline {
                 }
                 echo "running lint script"
                 script {
-                    echo "Parameters for bash: ${WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
-                    def exitCode = sh script: "sh \'${WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true 
+                    echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
+                    def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true 
                     echo "After bash call, exit code: ${exitCode}"
                     //handle exit code here no reports to be sent, since this for deployment and not PRs
                     if(exitCode != 0)
@@ -231,17 +232,17 @@ pipeline {
     post {
         success {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "SUCCESSFUL", COMMIT_HASH, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", COMMIT_HASH, true)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "FAILED", COMMIT_HASH, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", COMMIT_HASH, true)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "STOPPED", COMMIT_HASH, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", COMMIT_HASH, true)
             }
         }
     }

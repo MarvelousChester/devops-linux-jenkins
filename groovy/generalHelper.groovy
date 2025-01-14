@@ -1,29 +1,34 @@
 // Clones or updates a repository in the specified directory.
 // If the directory exists and is a valid git repository, it fetches the latest changes.
 // Otherwise, it clones the repository from scratch.
-def cloneOrUpdateRepo(String projectDir, String repoSsh, String branch) {
+def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, String repoSsh, String branch) {
     if (!projectDir || !repoSsh || !branch) {
         error "Missing required parameters for cloneOrUpdateRepo()"
     }
-
+    
     echo "Checking if the project directory exists..."
-    if (!new File(projectDir).exists()) {
+    int projectExists = sh (script: "/usr/bin/find \"${workingDir}\" -type d -name ${projectType}", returnStatus: true)
+    echo "Project directory: ${projectDir}"
+    echo "Project exists: ${projectExists}"
+
+    if (projectExists != 0) {
         echo "Cloning repository..."
-        sh "git clone ${repoSsh} \"${projectDir}\""
+        sh "git clone ${repoSsh} ${projectDir}"
     } else {
-        if (new File("${projectDir}/.git").exists()) {
+        def isGitRepo = fileExists("${projectDir}/.git")
+        echo "isGitRepo: ${isGitRepo}"
+        if (isGitRepo) {
             echo "Project already exists. Fetching latest changes..."
             dir(projectDir) {
                 echo "Current branch before checkout:"
                 sh "git branch --show-current"
 
                 // Remove lock file if it exists
-                sh "rm -f '.git/index.lock'"
+                sh "rm -f .git/index.lock"
                 sh "git fetch origin"
 
-                // Check if the branch exist or not
-                // And then check out to the PR branch
-                checkoutBranch(projectDir, branch);
+                // Check if the branch exists and check it out
+                checkoutBranch(projectDir, branch)
 
                 echo "Current branch after checkout:"
                 sh "git branch --show-current"
@@ -31,12 +36,19 @@ def cloneOrUpdateRepo(String projectDir, String repoSsh, String branch) {
                 sh "git pull"
             }
         } else {
-            echo "Invalid git repository. Cleaning up and cloning afresh..."
-            sh "rm -rf '${projectDir}'"
-            sh "git clone ${repoSsh} \"${projectDir}\""
+            echo "Invalid git repository. Cleaning up and cloning a fresh..."
+            try {
+                def output = sh(script: "rm -rf ${projectDir}", returnStdout: true)
+                echo "Command output: ${output}"
+            } catch (Exception e) {
+                echo "Error: ${e.message}"
+                error("Failed to execute rm -rf ${projectDir}")
+            }
+            sh "git clone ${repoSsh} ${projectDir}"
         }
     }
 }
+
 
 def getDefaultBranch() {
     // Use git remote show to get the default branch

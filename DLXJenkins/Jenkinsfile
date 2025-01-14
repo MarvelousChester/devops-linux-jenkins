@@ -43,8 +43,9 @@ pipeline {
 
     environment {
         CI_PIPELINE = "true"
-        PROJECT_DIR = "${WORKSPACE}/Unity_Project" 
-        REPORT_DIR = "${WORKSPACE}/PRJob/${PR_BRANCH}"
+        PROJECT_TYPE = "Unity_Project"
+        PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
+        REPORT_DIR = "${env.WORKSPACE}/PRJob/${PR_BRANCH}"
         JOB_REPO = "${PR_REPO_HTML}"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
         JENKINS_API_KEY = credentials('jenkins-api-key')
@@ -53,21 +54,21 @@ pipeline {
     }
 
     stages {
-        // Prepare Workspace: Environment Setup, Workspace Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
-        stage('Prepare Workspace') {
+        // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
+        stage('Prepare WORKSPACE') {
             steps {
                 //send 'In Progress' status to Bitbucket
                 script {
                     // print jenkins env configurations
                     sh 'env'
-                    generalUtil = load("${WORKSPACE}/groovy/generalHelper.groovy")
-                    unityUtil = load("${WORKSPACE}/groovy/unityHelper.groovy")
+                    generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                    unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
 
-                    env.COMMIT_HASH = generalUtil.validateCommitHashes(WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
+                    env.COMMIT_HASH = generalUtil.validateCommitHashes(env.WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
 
-                    generalUtil.initializeEnvironment(WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
+                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
 
-                    generalUtil.cloneOrUpdateRepo(PROJECT_DIR, REPO_SSH, PR_BRANCH)
+                    generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
 
                     generalUtil.mergeBranchIfNeeded()
                 }
@@ -75,7 +76,7 @@ pipeline {
                 // Unity Setup: Identify the version of Unity Editor for the project
                 echo "Identifying Unity version..."
                 script {
-                    env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(WORKSPACE, PROJECT_DIR)
+                    env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
                 }
 
                 // Initial running the project on Unity Editor    
@@ -108,18 +109,18 @@ pipeline {
                 }
                 echo "running lint script"
                 script {
-                    sh "cp -f \'${WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
-                    echo "Parameters for bash: ${WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
-                    def exitCode = sh script: "sh \'${WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true 
+                    sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
+                    echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
+                    def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true 
                     echo "After bash call, exit code: ${exitCode}"
                     //handle exit code here
                     if(exitCode != 0)
                     {
                         echo "Error linting calling report"
-                        echo "Parameters for Python Fail: \'${WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
+                        echo "Parameters for Python Fail: \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
                         if(exitCode == 2) //report was generated call python script
                         {
-                            sh script: "python \'${WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
+                            sh script: "python \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
                         }
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE'){
                             error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
@@ -127,8 +128,8 @@ pipeline {
                     }
                     else
                     {
-                        echo "Parameters for Python Pass: \'${WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
-                        sh script: "python \'${WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
+                        echo "Parameters for Python Pass: \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
+                        sh script: "python \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
                     }
                 }
             }
@@ -186,7 +187,7 @@ pipeline {
                 }
                 echo "Sending test report."
                 script {
-                    unityUtil.sendTestReport(WORKSPACE, REPORT_DIR, COMMIT_HASH)
+                    unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
                 }
             }
         }

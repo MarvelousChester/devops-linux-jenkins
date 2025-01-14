@@ -41,8 +41,9 @@ pipeline {
 
     environment {
         CI_PIPELINE = "true"
-        PROJECT_DIR = "${WORKSPACE}\\JS_Project" 
-        REPORT_DIR = "${WORKSPACE}/PRJob/${PR_BRANCH}/Build_${BUILD_NUMBER}"
+        PROJECT_TYPE = "JS_Project"
+        PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
+        REPORT_DIR = "${env.WORKSPACE}/PRJob/${PR_BRANCH}/Build_${BUILD_NUMBER}"
         JOB_REPO = "${PR_REPO_HTML}"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
         // JENKINS_API_KEY = credentials('jenkins-api-key')
@@ -53,30 +54,31 @@ pipeline {
         SONARQUBE_SERVER="SonarServer"
         SONARQUBE_SCANNER="sonarqube-scanner"
         SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-PR"
-        SONAR_AUTH_TOKEN="squ_8f0b6b1b3cfd5f621b1ff21a836a569ee9d4cf75"
+        SONAR_AUTH_TOKEN="sqp_9383804e1221acfb19f1e9a38898498b39b444cd"
     }
 
     stages {
-        // Prepare Workspace: Environment Setup, Workspace Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
-        stage('Prepare Workspace') {
+        // Prepare WORKSPACE: Environment Setup, WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
+        stage('Prepare WORKSPACE') {
             steps {
                 dir ("${PROJECT_DIR}") {
                 //send 'In Progress' status to Bitbucket
                 script {
                     // print jenkins env configurations
                     sh 'env'
-                    generalUtil = load("${WORKSPACE}/groovy/generalHelper.groovy")
-                    jsUtil = load("${WORKSPACE}/groovy/jsHelper.groovy")
+                    generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                    jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
+
                     echo "validating commit hashes"
-                    env.COMMIT_HASH = generalUtil.validateCommitHashes(WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
+                    env.COMMIT_HASH = generalUtil.validateCommitHashes(env.WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
                     echo env.COMMIT_HASH
 
                     echo "initialize environment"
-                    generalUtil.initializeEnvironment(WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
+                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
 
                     echo "clone Or Update Repo"
-                    generalUtil.cloneOrUpdateRepo(PROJECT_DIR, REPO_SSH, PR_BRANCH)
-
+                    generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
+ 
                     echo "merge Branch If Needed"
                     generalUtil.mergeBranchIfNeeded()
 
@@ -101,7 +103,7 @@ pipeline {
                     jsUtil.installNpmInTestingDirs(env.TEST_DIRECTORIES)
 
                     // Change back to default directory
-                    bat(script: 'cd "' + WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"') 
                 }
             }
         }
@@ -126,7 +128,7 @@ pipeline {
                     jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false)
 
                     // Change back to default directory
-                    bat(script: 'cd "' + WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"') 
                 }
             }
         }
@@ -136,37 +138,37 @@ pipeline {
                 dir ("${PROJECT_DIR}") {
                     script {
                         sh "pwd"
-                        def scannerHome = tool "sonarqube-scanner"
+                        String scannerHome = tool 'sonarqube-scanner'
+                        echo "SonarQube scanner located at: ${scannerHome}"
+
                         withSonarQubeEnv(SONARQUBE_SERVER) {
-                            bat "${scannerHome}\\bin\\sonar-scanner.bat " +
-                            "-Dsonar.projectKey=${SONAR_PROJECT_KEY} " +
-                            "-Dsonar.sources=. " +
-                            "-Dsonar.login=${SONAR_AUTH_TOKEN} "
-                        }
-                    }
-                }
-                script{
-                    timeout(time: 1, unit: 'HOURS') {
-                        // Parameter indicates whether to set pipeline to UNSTABLE if Quality Gate fails
+                            String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
+                                                "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
+                                                "\"-Dsonar.host.url=http://localhost:9000\" " +
+                                                "\"-Dsonar.sources=.\" " +
+                                                "\"-Dsonar.token=${env.SONAR_AUTH_TOKEN}\""
 
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE'){
-                            def qualityGate = waitForQualityGate()
-                            if(qualityGate.status != "OK"){
-                                error "SonarQube Quality Gate failed"
-                            }                            
+                            echo "Executing SonarQube scanner with command: ${sonarCommand}"
+                            sh sonarCommand
                         }
                     }
                 }
-            }
-        }
-        //Builds the project and saves it. containerization?
-        stage('Build Project') {
-            steps {
                 script {
-                    echo "Build Step"
+                    // Set a timeout for waiting on the Quality Gate result
+                    int timeoutDuration = 1
+                    String timeoutUnit = 'HOURS'
 
-                    echo "Returning to the main branch..."
-                    generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH);
+                    timeout(time: timeoutDuration, unit: timeoutUnit) {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                            // Wait for SonarQube Quality Gate results
+                            def qualityGate = waitForQualityGate()
+                            echo "Quality Gate Status: ${qualityGate.status}"
+
+                            if (qualityGate.status != 'OK') {
+                                error "SonarQube Quality Gate failed"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -174,19 +176,25 @@ pipeline {
 
     // When the pipeline finishes, sends the build status to Bitbucket.
     post {
+        always {
+            script {
+                echo "Returning to the main branch..."
+                generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
+            }
+        }
         success {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "SUCCESSFUL", COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "FAILED", COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(WORKSPACE, "STOPPED", COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH)
             }
         }
     }
