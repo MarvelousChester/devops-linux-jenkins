@@ -46,7 +46,7 @@ pipeline {
         SONARQUBE_SERVER="SonarServer"
         SONARQUBE_SCANNER="sonarqube-scanner"
         SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-Deployment"
-        SONAR_AUTH_TOKEN="squ_8f0b6b1b3cfd5f621b1ff21a836a569ee9d4cf75"
+        SONAR_AUTH_TOKEN="sqp_9383804e1221acfb19f1e9a38898498b39b444cd"
     }
 
     stages {
@@ -89,13 +89,13 @@ pipeline {
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
                     script {
                         env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-                        //env.COMMIT_HASH = "${sh (script: "git log -n 1 --pretty=format:\"%H\"", returnStdout: true)}"
-                    }
+                //env.COMMIT_HASH = "${sh (script: "git log -n 1 --pretty=format:\"%H\"", returnStdout: true)}"
+                }
                     if (!fileExists("${PROJECT_DIR}")) {
                         echo "First time running pipeline. Cloning main branch..."
                         sh "git clone ${REPO_SSH} \"${PROJECT_DIR}\""
                     }
-                }
+            }
                 
                 dir ("${PROJECT_DIR}") {
                     // Ensure it stays in the main branch
@@ -113,8 +113,8 @@ pipeline {
                     env.TEST_DIRECTORIES = jsUtil.findTestingDirs(PROJECT_DIR)
                     echo "Testing directories: ${env.TEST_DIRECTORIES}"
                 }
-            }
         }
+    }
         stage('Install Dependencies'){
             steps {
                 script {    
@@ -157,28 +157,46 @@ pipeline {
                     jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false) //* Set the deploymentBuild argument as "false" for now 
 
                     // Change back to default directory
-                    bat(script: 'cd "' + env.WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"') 
                 }
             }
         }
-         // Runs static code analysis using SonarQube installed in Jenkins virtual machine. 
+        // Runs static code analysis using SonarQube installed in Jenkins virtual machine. 
         stage('Static Analysis'){
             steps {
                 dir ("${PROJECT_DIR}") {
                     script {
-                        def scannerHome = tool "sonarqube-scanner"
+                        sh "pwd"
+                        String scannerHome = tool 'sonarqube-scanner'
+                        echo "SonarQube scanner located at: ${scannerHome}"
+
                         withSonarQubeEnv(SONARQUBE_SERVER) {
-                            bat "${scannerHome}\\bin\\sonar-scanner.bat " +
-                            "-Dsonar.projectKey=${SONAR_PROJECT_KEY} " +
-                            "-Dsonar.sources=. " +
-                            "-Dsonar.login=${SONAR_AUTH_TOKEN}"
+                            String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
+                                                "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
+                                                "\"-Dsonar.host.url=http://localhost:9000\" " +
+                                                "\"-Dsonar.sources=.\" " +
+                                                "\"-Dsonar.token=${env.SONAR_AUTH_TOKEN}\""
+
+                            echo "Executing SonarQube scanner with command: ${sonarCommand}"
+                            sh sonarCommand
                         }
                     }
                 }
-                script{
-                    timeout(time: 1, unit: 'HOURS') {
-                        // Abort the pipeline for deployment
-                        waitForQualityGate abortPipeline: true
+                script {
+                    // Set a timeout for waiting on the Quality Gate result
+                    int timeoutDuration = 1
+                    String timeoutUnit = 'HOURS'
+
+                    timeout(time: timeoutDuration, unit: timeoutUnit) {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                            // Wait for SonarQube Quality Gate results
+                            def qualityGate = waitForQualityGate()
+                            echo "Quality Gate Status: ${qualityGate.status}"
+
+                            if (qualityGate.status != 'OK') {
+                                error "SonarQube Quality Gate failed"
+                            }
+                        }
                     }
                 }
             }
@@ -186,22 +204,41 @@ pipeline {
         // Builds the project if needed (containerization?)
         stage ('Build Project') {
             steps {
+                
                 script {
-                    echo "Build step"
+                    // Check whether the Docker is running or not
+                    int isDockerRunning = sh(script: "sudo docker info > /dev/null 2>&1", returnStatus: true)
+                    echo "isDockerRunning: ${isDockerRunning}"
+
+                    if (isDockerRunning != 0) {
+                        echo "Docker is not running or not available."
+                        error("Docker is not available. Please start Docker and try again.")
+                    }
+                }
+
+                script {
+                    // Login to Azure using system managed identity
+                    sh "sudo az login --identity --username 0ca5eb7b-0dfc-4449-8c1e-c9dae95c7a97"
+                    
+                    // Login to Azure Container Registry
+                    sh "sudo az acr login --name webbuilds"
+
+                    String serverPath = env.PROJECT_DIR.replace('\\', '/')
+                    // Build server & client container image
+                    echo "Build The Server Container Image"
+                    sh "sudo docker build -t webbuilds.azurecr.io/assetstore-server:latest ${serverPath}/server/."
+
+                    echo "Build The Client Container Image"
+                    sh "sudo docker build -t webbuilds.azurecr.io/assetstore-client:latest ${serverPath}/client-portual/."
                 }
             }
         }
         // Deploys the build on our remote web server. 
         stage ('Deploy Build') {
             steps {
-                script {   
+                script {
 
-                    // Check whether the Docker is running or not
-                    def isDockerRunning = sh(script: "docker info > /dev/null 2>&1", returnStatus: true)
-                    if (isDockerRunning != 0) {
-                        echo "Docker is not running or not available."
-                        error("Docker is not available. Please start Docker and try again.")
-                    }
+
 
                     /*
                     >> Uncommented when the vConestoga team's version control strategy is solid          <<
@@ -231,46 +268,31 @@ pipeline {
                     }
                     */
 
-                    // Login to Azure using system managed identity
-                    powershell "az login --identity --username 1e9035e2-9e91-4d9c-8fdb-6d70ac50e119"
-                    
-                    // Login to Azure Container Registry
-                    powershell "az acr login --name webbuilds"
-
-                    def serverPath = env.PROJECT_DIR.replace('\\', '/')
-                    // Build server & client container image
-                    echo "Build The Server Container Image"
-                    sh "docker build -t webbuilds.azurecr.io/assetstore-server:latest ${serverPath}/server/."
-
-                    echo "Build The Client Container Image"
-                    sh "docker build -t webbuilds.azurecr.io/assetstore-client:latest ${serverPath}/client-portual/."  
-
-
                     // Push each container to the Azure Container Registry
                     echo "Push The Server Container Image to Azure Container Registry"
-                    sh "docker push webbuilds.azurecr.io/assetstore-server:latest"
+                    sh "sudo docker push webbuilds.azurecr.io/assetstore-server:latest"
 
                     echo "Push The Client Container Image to Azure Container Registry"
-                    sh "docker push webbuilds.azurecr.io/assetstore-client:latest"  
+                    sh "sudo docker push webbuilds.azurecr.io/assetstore-client:latest"  
 
 
                     // Update each instance from Azure Container App 
                     echo "Upupdate The Server Container App to the Latest Version"
-                    powershell "az containerapp update --name assetstore-server --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-server:latest"      
+                    sh "sudo az containerapp update --name assetstore-server --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-server:latest"      
 
                     //echo "Upupdate The Client Container App to the Latest Version"
-                    powershell "az containerapp update --name assetstore-client --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-client:latest"  
+                    sh "sudo az containerapp update --name assetstore-client --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-client:latest"  
 
 
                     // Clean up local images
                     echo "Delete The Server & Client Container Image from dlx-webhost Server"
-                    sh "docker rmi webbuilds.azurecr.io/assetstore-server:latest"
-                    sh "docker rmi webbuilds.azurecr.io/assetstore-client:latest"
+                    sh "sudo docker rmi webbuilds.azurecr.io/assetstore-server:latest"
+                    sh "sudo docker rmi webbuilds.azurecr.io/assetstore-client:latest"
                       
                 }
             }
         }
-    }
+}
 
     // Sends the build status to Bitbucket. If the build was successful, Bitbucket will link to the deployed project on the web server.
     post {

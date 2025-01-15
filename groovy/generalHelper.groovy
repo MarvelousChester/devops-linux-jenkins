@@ -69,12 +69,12 @@ def initializeEnvironment(String workspace, String commitHash, String prBranch, 
     env.FOLDER_NAME = "${JOB_NAME}".split('/').first()
 }
 
-def checkoutBranch(String projectDir, String prBranch) {
+def checkoutBranch(String projectDir, String targetBranch) {
     dir(projectDir) {
-        echo "Checking out branch ${prBranch}..."
-        boolean branchExists = sh(script: "git show-ref --verify --quiet refs/heads/${prBranch} || git show-ref --verify --quiet refs/remotes/origin/${prBranch}", returnStatus: true) == 0
+        echo "Checking out branch ${targetBranch}..."
+        boolean branchExists = sh(script: "git show-ref --verify --quiet refs/heads/${targetBranch} || git show-ref --verify --quiet refs/remotes/origin/${targetBranch}", returnStatus: true) == 0
         if (!branchExists) {
-            error "Branch ${prBranch} does not exist locally or remotely."
+            error "Branch ${targetBranch} does not exist locally or remotely."
         }
         // Clean up added and modified before checkout
         sh 'git reset --hard'
