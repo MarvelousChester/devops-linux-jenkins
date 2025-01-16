@@ -155,8 +155,8 @@ pipeline {
                 }
                 script {
                     // Set a timeout for waiting on the Quality Gate result
-                    int timeoutDuration = 1
-                    String timeoutUnit = 'HOURS'
+                    int timeoutDuration = 5
+                    String timeoutUnit = 'MINUTES'
 
                     timeout(time: timeoutDuration, unit: timeoutUnit) {
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
