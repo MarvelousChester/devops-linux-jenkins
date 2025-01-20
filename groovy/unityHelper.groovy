@@ -1,22 +1,37 @@
-// Sends a test report to Bitbucket Cloud API. Testmode can either be EditMode or PlayMode.
+/**
+ * This function encapsulates the calling of our helper python script which will create and send
+ * the results of the Unity tests back to the BitBucket PR for developers to read.
+ *
+ * @param workspace The workspace directory where the Jenkins Files and Project Files are located.
+ * @param reportDir The directory that holds the test reports.
+ * @param commitHash The short commit hash that triggered this pipeline run.
+ */
 def sendTestReport(workspace, reportDir, commitHash) {
     sh "python \'${workspace}/python/create_bitbucket_test_report.py\' \'${commitHash}\' \'${reportDir}\'"
 }
 
-// Parses the given log for any errors recorded in a text file of known errors. Not currently in use.
+/**
+ * Parses a log file to identify errors using a Python script.
+ * This function calls a helper Python script to analyze the specified log file
+ * and returns the output from the script.
+ * 
+ * @param logPath The path to the log file that needs to be analyzed for errors.
+ * @return The output from the Python script, which contains the analysis results.
+ */
 def parseLogsForError(logPath) {
     return sh (script: "python \'${workspace}/python/get_unity_failure.py\' \'${logPath}\'", returnStdout: true)
 }
 
-// Checks if an exit code thrown during a test stage should fail the PR Pipeline. ExitCode 2 means failing tests, which we want to report back to Bitbucket
-// without failing the entire pipeline. *NOTE POTENTIALLY UNUSED*
-def checkIfTestStageExitCodeShouldExit(workspace, exitCode) {
-    if (exitCode == 3 || exitCode == 1) {
-        sh "exit ${exitCode}"
-    }
-}
-
-// Checks if a Unity executable exists and returns its path. Downloads the missing Unity version if not installed.
+/**
+ * Retrieves the path to the Unity executable for the specified project directory.
+ * If the Unity executable is not found locally, the function attempts to install the required Unity version
+ * and WebGL Build Support using Unity Hub.
+ * 
+ * @param workspace The workspace directory where the Jenkins Files and Project Files are located
+ * @param projectDir The project directory for which the Unity executable path is required.
+ * @return The path to the Unity executable as a string.
+ * @throws Exception If an error occurs during the retrieval or installation of the Unity executable.
+ */
 def getUnityExecutable(workspace, projectDir) {
     try {
         def unityExecutable = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' executable-path", returnStdout: true).trim()
@@ -44,7 +59,19 @@ def getUnityExecutable(workspace, projectDir) {
     }
 }
 
-// Runs a Unity project's tests of a specified type, while also allowing optional code coverage and test reporting.
+/**
+ * Runs a Unity project's tests for a specified test type with optional code coverage and test reporting.
+ * This function executes Unity tests in batch mode and provides options for logging, code coverage,
+ * and error handling based on the deployment type.
+ * 
+ * @param unityExecutable The path to the Unity executable to be used for running the tests.
+ * @param reportDir The directory where test result logs and reports will be stored.
+ * @param projectDir The directory of the Unity project to be tested.
+ * @param testType The type of tests to run (e.g., "EditMode" or "PlayMode").
+ * @param enableReporting A boolean flag indicating whether code coverage and test reporting should be enabled.
+ * @param deploymentBuild A boolean flag indicating whether to fail the build pipeline on test failure.
+ *                        If true, the build pipeline will abort on test failures; otherwise, it will proceed.
+ */
 def runUnityTests(unityExecutable, reportDir, projectDir, testType, enableReporting, deploymentBuild) {
     // Define the log file path for the test results
     def logFile = "${reportDir}/test_results/${testType}-tests.log"
@@ -119,31 +146,15 @@ def runUnityTests(unityExecutable, reportDir, projectDir, testType, enableReport
     handleExitCode(exitCode, deploymentBuild)
 }
 
-
-// Converts a Unity test result XML file to an HTML file.
-def convertTestResultsToHtml(reportDir, testType) {
-    // Writing the console output to a file because Jenkins' returnStdout still causes the pipeline to fail if the exit code != 0
-    def exitCode = sh (script: """dotnet C:/UnityTestRunnerResultsReporter/UnityTestRunnerResultsReporter.dll \
-        --resultsPath=\"${reportDir}/test_results\" \
-        --resultXMLName=${testType}-results.xml \
-        --unityLogName=${testType}-tests.log \
-        --reportdirpath=\"${reportDir}/test_results/${testType}-report\" > UnityTestRunnerResultsReporter.log""", returnStatus: true)
-    
-    // This Unity tool throws an error if any tests are failing, yet still generates the report.
-    // If the tests are failing, we want to avoid failing the pipeline so we can access the report.
-    if (exitCode != 0) {
-        consoleOutput = readFile("UnityTestRunnerResultsReporter.log")
-        def testReportGenerated = consoleOutput =~ /Test report generated:/
-
-        if (!testReportGenerated) {
-            println "Error: Test report was not generated for ${testType}. Exit code: ${exitCode}"
-            println "Log Output: ${consoleOutput}"
-            sh "exit 1"
-        }
-    }
-}
-
-// Builds a Unity project.
+/**
+ * Builds a Unity project targeting the WebGL platform.
+ * This function runs Unity in batch mode to build the specified project and logs the build process.
+ * 
+ * @param reportDir The directory where the build logs and results will be stored.
+ * @param projectDir The directory of the Unity project to be built.
+ * @param unityExecutable The path to the Unity executable to use for building the project.
+ * @throws Exception If the build process fails, the function exits with the corresponding error code.
+ */
 def buildProject(reportDir, projectDir, unityExecutable) {
     def logFile = "${reportDir}/build_project_results/build_project.log"
 
@@ -158,22 +169,6 @@ def buildProject(reportDir, projectDir, unityExecutable) {
 
     if (exitCode != 0) {
         sh "exit ${exitCode}"
-    }
-}
-
-// A method for post-build PR actions.
-// Creates a log report for Unity logs and Jenkins logs, then publishes it to the web server,
-// and lastly sends the build status to Bitbucket.
-def postBuild(status) {
-    // sh "python -u \'${env.WORKSPACE}/python/create_log_report.py\'"
-
-    sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
-    \"sudo mkdir -p /var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER} \
-    && sudo chown vconadmin:vconadmin /var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER}\""""
-
-    if (fileExists("${env.REPORT_DIR}/logs.html")) {
-        sh "scp -i ~/.ssh/vconkey.pem -rp \"${env.REPORT_DIR}/logs.html\" \
-    \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:/var/www/html/${env.FOLDER_NAME}/Reports/${env.TICKET_NUMBER}\""
     }
 }
 

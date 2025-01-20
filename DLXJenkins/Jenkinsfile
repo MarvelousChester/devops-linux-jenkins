@@ -57,20 +57,29 @@ pipeline {
         // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
+                dir ("${PROJECT_DIR}") {
                 //send 'In Progress' status to Bitbucket
                 script {
                     // print jenkins env configurations
                     sh 'env'
                     generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                     unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+                    
+                    if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals("Y")){
+                        echo "Local branch commit is up to date with remote branch, no changes. Aborting pipeline."
+                        currentBuild.result = 'ABORTED'
+                        error("Branch is not up-to-date.")                     
+                    }
 
-                    env.COMMIT_HASH = generalUtil.validateCommitHashes(env.WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
+                    env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
-                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
+                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
 
                     generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
 
                     generalUtil.mergeBranchIfNeeded()
+
+                    }
                 }
 
                 // Unity Setup: Identify the version of Unity Editor for the project
@@ -215,19 +224,16 @@ pipeline {
     post {
         success {
             script {
-                // unityUtil.postBuild("SUCCESSFUL")
                 generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)
             }
         }
         failure {
             script {
-                // unityUtil.postBuild("FAILED")
                 generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH)
             }
         }
         aborted {
             script {
-                // unityUtil.postBuild("STOPPED")
                 generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH)
             }
         }

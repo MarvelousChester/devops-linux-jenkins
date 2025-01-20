@@ -1,6 +1,17 @@
-// Clones or updates a repository in the specified directory.
-// If the directory exists and is a valid git repository, it fetches the latest changes.
-// Otherwise, it clones the repository from scratch.
+/**
+ * Clones or updates a Git repository in the specified directory.
+ * If the project directory does not exist or does not contain the expected project type, 
+ * the repository is cloned from scratch. Otherwise, the latest changes are fetched.
+ *
+ * @param projectType The type of project to check for (used to locate the directory).
+ * @param workingDir  The root directory where the project is located.
+ * @param projectDir  The full path to the project directory.
+ * @param repoSsh     The SSH URL of the repository to clone or update.
+ * @param branch      The branch to check out and pull updates from.
+ * 
+ * @throws MissingPropertyException If required parameters are missing.
+ * @throws Exception If an invalid git repository exists or cleanup fails.
+ */
 def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, String repoSsh, String branch) {
     if (!projectDir || !repoSsh || !branch) {
         error "Missing required parameters for cloneOrUpdateRepo()"
@@ -49,7 +60,11 @@ def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, 
     }
 }
 
-
+/**
+ * This function will identify the default branch of a repository, such as main or master.
+ *
+ * @return string The name of the default branch
+ */
 def getDefaultBranch() {
     // Use git remote show to get the default branch
     def defaultBranch = sh(script: "git remote show origin | grep 'HEAD branch' | awk '{print \$NF}'", returnStdout: true).trim()
@@ -61,14 +76,26 @@ def getDefaultBranch() {
 }
 
 
-
-def initializeEnvironment(String workspace, String commitHash, String prBranch, String projectDir) {
+/**
+ * This function will notify bitbucket that the pipeline is in progress, as well as set up some environment variables.
+ *
+ * @param workspace The folder containing the Jenkins and Project files
+ * @param commitHash The hash for the commit that triggered the pipeline
+ * @param prBranch The branch name that triggered the pipeline
+ */
+def initializeEnvironment(String workspace, String commitHash, String prBranch) {
     echo "Sending 'In Progress' status to Bitbucket..."
     sendBuildStatus(workspace, "INPROGRESS", commitHash)
     env.TICKET_NUMBER = parseTicketNumber(prBranch)
     env.FOLDER_NAME = "${JOB_NAME}".split('/').first()
 }
 
+/**
+ * This function is used to encapsulate the git action of checking out a branch into a reusable function
+ *
+ * @param projectDir The folder containing project files
+ * @param targetBranch The branch to check out
+ */
 def checkoutBranch(String projectDir, String targetBranch) {
     dir(projectDir) {
         echo "Checking out branch ${targetBranch}..."
@@ -81,12 +108,17 @@ def checkoutBranch(String projectDir, String targetBranch) {
         // Clean up all untracked files before checkout
         sh 'git clean -fd'
         // checkout
+        sh "git config pull.rebase true"
+        sh "git pull --rebase --strategy-option=theirs"
         sh "git checkout ${targetBranch}"
     }
 }
 
 
-// This will try to merge the branch, throwing an error if theres an error.
+/**
+ * This function encapsulates the git action of merging the default branch into the PR branch
+ * if it is determined the branch is not up to date.
+ */
 def mergeBranchIfNeeded() {
     def destinationBranch = getDefaultBranch()
     try {
@@ -101,13 +133,13 @@ def mergeBranchIfNeeded() {
 
         // Check if the branch is up-to-date
         echo "Checking if branch is up-to-date with ${destinationBranch}..."
-        if (isBranchUpToDate(destinationBranch) == 0) {
+        if (isBranchUpToDateWithMain(destinationBranch)) {
             echo "Branch is up-to-date with ${destinationBranch}."
             return
         }
 
         echo "Branch is not up-to-date. Attempting to merge ${destinationBranch}..."
-        if (tryMerge(destinationBranch) == 0) {
+        if (tryMerge(destinationBranch)) {
             echo "Merge completed successfully."
         } else {
             echo "Merge conflicts detected. Aborting the merge."
@@ -120,37 +152,49 @@ def mergeBranchIfNeeded() {
     }
 }
 
-def validateCommitHashes(String workspace, String projectDir, String prCommit, String testRunFlag) {
-    def commitHash = getFullCommitHash(workspace, prCommit)
-    dir(projectDir) {
-        def currentHash = getCurrentCommitHash()
-        echo "Current Commit Hash: ${currentHash}, Target Commit Hash: ${commitHash}"
-        if (isEqualCommitHash(currentHash, commitHash) && !testRunFlag.equals("Y")) {
-            def message = "No commits updated. Exiting the pipeline..."
-            echo message
-            currentBuild.result = 'ABORTED'
-            error(message)
-        }
-    }
-    return commitHash // Return the fetched commit hash for further use
+/**
+ * Checks if the current local branch has new commits compared to its remote counterpart.
+ *
+ * @param branch The branch to check (e.g., pr-branch).
+ * @return true if the local branch is up-to-date with the remote branch, false otherwise.
+ */
+def isBranchUpToDateWithRemote(String branch) {
+    
+    return sh(
+        script: "git fetch origin ${branch} && [ \$(git rev-parse HEAD) = \$(git rev-parse origin/${branch}) ]",
+        returnStatus: true
+    ) == 0
 }
 
 
-// Checks whether a branch is up to date with the destination branch by seeing if it is an ancestor of the destination.
-// This is in its own method to avoid pipeline failure if the branch needs updating.
-def isBranchUpToDate(destinationBranch) {
-    return sh (script: "git merge-base --is-ancestor origin/${destinationBranch} @", returnStatus: true)
+/**
+ * This function encapsulates the git action of checking if the current branch is up to date with main 
+ *
+ * @return true if the local branch is up-to-date with the main branch, false otherwise.
+ */
+def isBranchUpToDateWithMain(destinationBranch) {
+    return sh (script: "git merge-base --is-ancestor origin/${destinationBranch} @", returnStatus: true) == 0
 }
 
-// Attempts to merge the destination branch into the current branch.
-// This is in its own method to avoid automatic pipeline failure if there are merge errors. We want to alert the user of the merge errors.
+/**
+ * This function encapsulates the git action of checking of merging the destination branch to the local branch
+ *
+ * @param destinationBranch The target branch to merge into the local branch.
+ * @return true if the merge is successful, false otherwise.
+ */
 def tryMerge(String destinationBranch) {
     echo "Attempting to merge origin/${destinationBranch}..."
-    return sh(script: "git merge origin/${destinationBranch}", returnStatus: true)
+    return sh(script: "git merge origin/${destinationBranch}", returnStatus: true) == 0
 }
 
-
-// Retrieves the full commit hash from Bitbucket Cloud API, since the webhook only gives us the short version.
+/**
+ * This function is used to retrieve the full commit hash, this is currently done by calling a python script 
+ * which retrieves it from bitbucket via web request.
+ *
+ * @param workspace The local workspace which contains our jenkins files and project files.
+ * @param shortCommit The short commit hash.
+ * @return string The long commit hash.
+ */
 def getFullCommitHash(String workspace, String shortCommit) {
     def fullHash = sh(script: "python '${workspace}/python/get_bitbucket_commit_hash.py' ${shortCommit}", returnStdout: true).trim()
     if (!fullHash) {
@@ -159,18 +203,25 @@ def getFullCommitHash(String workspace, String shortCommit) {
     return fullHash
 }
 
-
-// Retrieves the latest commit hash of the current local repository.
+/**
+ * This function is used to retrieve the short commit hash via git.
+ *
+ * @return string The short commit hash.
+ */
 def getCurrentCommitHash(){
     return sh (script: "git rev-parse HEAD", returnStdout: true).trim() 
 }
 
-// Checks if the currentHash from the local repository and the commitHash from the remote repository are equal.
-def isEqualCommitHash(currentHash, commitHash){
-    return currentHash.equals(commitHash)
-}
-
-// Sends a build status to Bitbucket Cloud API.
+/**
+ * This function is used to send the build status back to the bitbucket REST API, This is achieved by calling a 
+ * helper python script to handle the web request.
+ * 
+ * @param workspace The path to the workspace where the Python script is located.
+ * @param state The build status to send (e.g., INPROGRESS, SUCCESSFUL, FAILED).
+ * @param commitHash The commit hash associated with the build.
+ * @param deployment (Optional) A flag indicating whether the build is a deployment build (default: false).
+ * @param javascript (Optional) A flag indicating whether the build involves JavaScript analysis, requiring additional keys (default: false).
+ */
 def sendBuildStatus(workspace, state, commitHash, deployment = false, javascript = false) {
     try {
         def pythonCommand = "python '${workspace}/python/send_bitbucket_build_status.py' '${commitHash}' '${state}'"
@@ -190,13 +241,13 @@ def sendBuildStatus(workspace, state, commitHash, deployment = false, javascript
     }
 }
 
-def checkIfFileIsLocked(filePath) {
-    return bat (script: """2>nul (
-            >>\"${filePath}\" (call )
-        ) && (exit 0) || (exit 1)""", returnStatus: true)
-}
-
-// Parses a Jira ticket number from the branch name.
+/**
+ * Extracts a ticket number from a branch name using a predefined pattern.
+ * The pattern matches strings in the format "ABC-123" (letters followed by a hyphen and digits).
+ * 
+ * @param branchName The name of the branch from which to extract the ticket number.
+ * @return The extracted ticket number if a match is found, or null if no match is found.
+ */
 def parseTicketNumber(branchName) {
     def patternMatches = branchName =~ /[A-Za-z]+-[0-9]+/
     
@@ -205,7 +256,18 @@ def parseTicketNumber(branchName) {
     }
 }
 
-// Publishes a test result HTML file to the VARLab's remote web server for hosting.
+/**
+ * Publishes test result HTML reports to a remote web server.
+ * The function creates the necessary directories on the server, adjusts permissions,
+ * and uploads the reports using SSH and SCP.
+ * 
+ * @param remoteProjectFolderName The name of the remote project folder on the web server.
+ * @param ticketNumber The identifier for the ticket associated with the test results.
+ * @param reportDir The local directory containing the HTML test result reports to be uploaded.
+ * @param reportType The type of report being published (e.g. CodeCoverage).
+ * @param buildNumber Optional. The build number associated with the test results. If provided, 
+ *                    the reports will be placed under a subdirectory for that build.
+ */
 def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, reportDir, reportType, buildNumber = null) {
     echo "Attempting to publish results to web server"
     def destinationDir = buildNumber ? "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/Build-${buildNumber}/${reportType}-report" : "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/${reportType}-report"
@@ -220,12 +282,26 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}\""
 }
 
-// Deletes a branch's reports from the web server after it has been merged.
+/**
+ * Deletes the reports for a merged branch from the remote web server.
+ * This function removes the directory associated with the branch's ticket number
+ * to clean up after a successful merge.
+ * 
+ * @param remoteProjectFolderName The name of the remote project folder on the web server.
+ * @param ticketNumber The identifier for the ticket associated with the branch whose reports need to be removed.
+ */
 def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber) {
     sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
     \"sudo rm -r -f /var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}\""""
 }
 
+/**
+ * Cleans up directories associated with a pull request branch.
+ * This function searches for directories matching the branch name, deletes them,
+ * and also removes any associated temporary directories (`@tmp`) if they exist.
+ * 
+ * @param prBranch The name of the pull request branch to clean up.
+ */
 def cleanUpPRBranch(String prBranch) {
     // Find the path of 'find' directory searching tool
     def findPath = sh(script: "which find", returnStdout: true).trim()
@@ -269,6 +345,13 @@ def cleanUpPRBranch(String prBranch) {
     } 
 }
 
+/**
+ * Closes open log files in a specified directory by terminating associated processes.
+ * This function identifies processes holding open files in the given directory,
+ * extracts their PIDs, and forcefully terminates those processes if they still exist.
+ * 
+ * @param branchPath The path to the directory where log files are checked for open processes.
+ */
 void closeLogfiles(String branchPath) {
     try {
         // Check whether there are open files in the target directory

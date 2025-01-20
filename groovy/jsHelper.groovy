@@ -1,6 +1,12 @@
 import groovy.json.JsonSlurper
 
-// Checks the subdirectories 1 level under the project root folder, to find the correct testing directories and  store the folder paths in env.  
+/**
+ * Identifies subdirectories within a project folder that contain a `package.json` file.
+ * This function is typically used to find directories that require testing or dependency installation.
+ * 
+ * @param projectFolder The path to the root project folder to scan for subdirectories.
+ * @return A comma-separated string of absolute paths to the subdirectories containing a `package.json` file.
+ */
 def findTestingDirs(projectFolder){
     def directoriesToTest = []
     def projectDir = new File(projectFolder)
@@ -19,7 +25,14 @@ def findTestingDirs(projectFolder){
     return directoriesToTest.join(',')
 }
 
-// This function will change directory to testing directories to install dependencies.
+/**
+ * Installs npm dependencies in the specified testing directories.
+ * This function performs an npm audit before installation, processes the audit report using a Python script,
+ * and then runs `npm install` to install dependencies.
+ * 
+ * @param testingDirs A comma-separated string of directory paths where npm dependencies need to be installed.
+ *                    If null or empty, the function will exit without performing any operations.
+ */
 void installNpmInTestingDirs(String testingDirs) {
     if (testingDirs == null || testingDirs.isEmpty()) {
         echo "Testing directories don't exist."
@@ -38,7 +51,7 @@ void installNpmInTestingDirs(String testingDirs) {
         // Run npm audit before installing dependencies
         String npmAuditCommand = "cd '${dirPath}' && npm audit --json > audit-report.json"
         echo "Running command: ${npmAuditCommand}"
-        int exitCode = runCommand(npmAuditCommand) // Run audit first
+        int exitCode = runCommandReturnStatus(npmAuditCommand) // Run audit first
         if (exitCode != 0) {
             echo "npm audit failed in directory: ${dirPath} with exit code: ${exitCode}. Proceeding with caution."
         }
@@ -64,7 +77,7 @@ void installNpmInTestingDirs(String testingDirs) {
         // Run npm install with error handling
         String npmCommand = "cd '${dirPath}' && npm install"
         echo "Running command: ${npmCommand}"
-        exitCode = runCommand(npmCommand) // Run npm install
+        exitCode = runCommandReturnStatus(npmCommand) // Run npm install
         if (exitCode != 0) {
             echo "npm install failed in directory: ${dirPath} with exit code: ${exitCode}. Skipping further operations."
             continue
@@ -72,6 +85,17 @@ void installNpmInTestingDirs(String testingDirs) {
     }
 }
 
+/**
+ * Runs unit tests in the specified testing directories using npm.
+ * This function iterates over the provided directories, runs `npm run test` in each, 
+ * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort 
+ * on test failures.
+ * 
+ * @param testingDirs A comma-separated string of directory paths where unit tests should be executed.
+ *                    If null or empty, the function will exit without performing any operations.
+ * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on test failure.
+ *                        If true, the pipeline will halt when a test fails; otherwise, it will continue.
+ */
 void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
     if (testingDirs == null || testingDirs.isEmpty()) {
         echo "Testing directories don't exist."
@@ -96,7 +120,7 @@ void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
         echo "Running command: ${testCommand}"
 
         // Run the unit testing command and capture the exit code
-        int exitCode = runCommand(testCommand) // Run Jest unit testing
+        int exitCode = runCommandReturnStatus(testCommand) // Run Jest unit testing
         if (exitCode != 0) {
             echo "npx jest failed with exit code: ${exitCode}."
             if (deploymentBuild) {
@@ -107,6 +131,12 @@ void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
     }
 }
 
+/**
+ * Checks the installed versions of Node.js and NPM, and retrieves the current NPM configuration.
+ * This function handles the commands for the appropriate environment being Windows, or Linux.
+ * 
+ * The versions and configuration are echoed to the console for verification.
+ */
 def checkNodeVersion(){
     // Cross-platform handling for Node and NPM checks
     try {
@@ -119,9 +149,10 @@ def checkNodeVersion(){
             echo "NPM version: ${npmVersion}"
             echo "NPM config: ${npmConfig}"
         } else {
-            def nodeVersion = sh(script: 'node -v', returnStdout: true).trim()
-            def npmVersion = sh(script: 'npm -v', returnStdout: true).trim()
-            def npmConfig = sh(script: 'npm config ls', returnStdout: true).trim()
+            //Windows must use bat otherwise issues are caused when calling node and npm
+            def nodeVersion = bat(script: 'node -v', returnStdout: true).trim()
+            def npmVersion = bat(script: 'npm -v', returnStdout: true).trim()
+            def npmConfig = bat(script: 'npm config ls', returnStdout: true).trim()
 
             echo "Node.js version: ${nodeVersion}"
             echo "NPM version: ${npmVersion}"
@@ -132,20 +163,34 @@ def checkNodeVersion(){
     }
 }
 
-// Helper function to run commands with platform-specific handling.
-def runCommand(command, String workingDir = ".") {
-    if (isWindows()) {
-        return sh(script: command, returnStatus: true)
+/**
+ * This is a helper function to run commands based on OS, bat for windows and sh for Linux
+ * It will return the status of the command, such as 0 or 1.
+ *
+ * @param command This is the command to run
+ * @param workingDir (Optional) This is the directory to run the command in (default: ".")
+ * @return 0 for command success, 1 for command fail.
+ */
+def runCommandReturnStatus(command, String workingDir = ".") {
+    if (isUnix()) {
+        return sh(script: "cd \"${workingDir}\" && ${command}", returnStatus: true)
     } else {
-        return sh(script: "cd ${workingDir} && ${command}", returnStatus: true)
+        //Windows must use bat otherwise issues are caused when calling node and npm
+        return bat(script: command, returnStatus: true)
     }
 }
 
-// Will return true if running on windows.
-def isWindows() {
-    return System.properties['os.name'].toLowerCase().contains('windows')
-}
-
+/**
+ * Executes linting in the specified testing directories using npm.
+ * This function iterates through the given directories, runs `npm run lint` in each,
+ * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort
+ * on linting failures.
+ * 
+ * @param testingDirs A comma-separated string of directory paths where linting should be executed.
+ *                    If null or empty, the function will exit without performing any operations.
+ * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on linting failure.
+ *                        If true, the pipeline will halt when linting fails; otherwise, it will continue.
+ */
 void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
     if (testingDirs == null || testingDirs.isEmpty()) {
         echo "Testing directories don't exist."

@@ -89,8 +89,7 @@ pipeline {
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
                     script {
                         env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-                //env.COMMIT_HASH = "${sh (script: "git log -n 1 --pretty=format:\"%H\"", returnStdout: true)}"
-                }
+                    }
                     if (!fileExists("${PROJECT_DIR}")) {
                         echo "First time running pipeline. Cloning main branch..."
                         sh "git clone ${REPO_SSH} \"${PROJECT_DIR}\""

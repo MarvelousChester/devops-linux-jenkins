@@ -68,13 +68,17 @@ pipeline {
                     sh 'env'
                     generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                     jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
+                    
+                    if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH)){
+                        echo "Current branch is up-to-date with origin/${destinationBranch}. Aborting pipeline."
+                        currentBuild.result = 'ABORTED'
+                        error("Branch is not up-to-date.")                     
+                    }
 
-                    echo "validating commit hashes"
-                    env.COMMIT_HASH = generalUtil.validateCommitHashes(env.WORKSPACE, PROJECT_DIR, PR_COMMIT, TEST_RUN)
-                    echo env.COMMIT_HASH
+                    env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
                     echo "initialize environment"
-                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH, PROJECT_DIR)
+                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
 
                     echo "clone Or Update Repo"
                     generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
