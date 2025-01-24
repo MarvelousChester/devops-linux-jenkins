@@ -54,7 +54,6 @@ pipeline {
         SONARQUBE_SERVER="SonarServer"
         SONARQUBE_SCANNER="sonarqube-scanner"
         SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-PR"
-        SONAR_AUTH_TOKEN="sqp_9383804e1221acfb19f1e9a38898498b39b444cd"
     }
 
     stages {
@@ -148,32 +147,29 @@ pipeline {
                         withSonarQubeEnv(SONARQUBE_SERVER) {
                             String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
                                                 "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
-                                                "\"-Dsonar.host.url=http://localhost:9000\" " +
-                                                "\"-Dsonar.sources=.\" " +
-                                                "\"-Dsonar.token=${env.SONAR_AUTH_TOKEN}\""
+                                                "\"-Dsonar.host.url=http://localhost:9000/sonarqube\" " +
+                                                "\"-Dsonar.sources=.\" "  +
+                                                "\"-Dsonar.python.version=3.10\""
 
                             echo "Executing SonarQube scanner with command: ${sonarCommand}"
                             sh sonarCommand
                         }
                     }
                 }
-                script {
-                    // Set a timeout for waiting on the Quality Gate result
-                    int timeoutDuration = 5
-                    String timeoutUnit = 'MINUTES'
+                withCredentials([string(credentialsId: 'SonarQube', variable: 'SONAR_QUBE_AUTH_TOKEN')]) {
+                    script {
+                        Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
-                    timeout(time: timeoutDuration, unit: timeoutUnit) {
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                            // Wait for SonarQube Quality Gate results
-                            def qualityGate = waitForQualityGate()
-                            echo "Quality Gate Status: ${qualityGate.status}"
-
-                            if (qualityGate.status != 'OK') {
-                                error "SonarQube Quality Gate failed"
-                            }
+                        if ((status.entireCodeStatus != "OK") && (status.newCodeStatus != "OK")) {
+                            error("Quality gate failed!")
+                        } else {
+                            echo "Quality gate passed!"
                         }
                     }
+                    }
                 }
+                
             }
         }
     }

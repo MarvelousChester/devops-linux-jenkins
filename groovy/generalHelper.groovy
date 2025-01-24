@@ -103,14 +103,14 @@ def checkoutBranch(String projectDir, String targetBranch) {
         if (!branchExists) {
             error "Branch ${targetBranch} does not exist locally or remotely."
         }
-        // Clean up added and modified before checkout
+        // Clean up added and modified from the local branch before checkout
         sh 'git reset --hard'
         // Clean up all untracked files before checkout
         sh 'git clean -fd'
-        // checkout
-        sh "git config pull.rebase true"
-        sh "git pull --rebase --strategy-option=theirs"
+        // checkout to the target branch
         sh "git checkout ${targetBranch}"
+        // Syncronize the target remote branch and local branch
+        sh "git reset --hard origin/${targetBranch}"
     }
 }
 
@@ -278,8 +278,7 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     && sudo chmod 755 /var/www/html/${remoteProjectFolderName} \
     && sudo chmod -R 755 /var/www/html/${remoteProjectFolderName}/Reports \""""
 
-    sh "scp -i ~/.ssh/vconkey.pem -rp \"${reportDir}/\" \
-    \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}\""
+    sh "scp -i ~/.ssh/vconkey.pem -rp ${reportDir}/* vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}"
 }
 
 /**

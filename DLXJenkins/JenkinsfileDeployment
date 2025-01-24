@@ -208,19 +208,19 @@ pipeline {
                     //call script to copy that into the deployed server
                     sh "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
                 }
-                
+
                 script {
                     if (DLX_PROJECT_LIST.contains(PR_REPO_NAME)) {
                         echo "Deploying build to eConestoga dlx web server..."
                         echo "List of DLX Repositories: ${DLX_PROJECT_LIST}"
-                        
+
                         // Create the directory and update the file permission
                         sh script: "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com \"sudo mkdir -p /var/www/html/${FOLDER_NAME} && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}\""
                         // Secured copy all WebGL components to the econestoga dlx server
                         sh script: "scp -i ~/.ssh/vconkey.pem -rp ${PROJECT_DIR}/Builds/* vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com:/var/www/html/${FOLDER_NAME}"
                         //call script to update the WebGL "index.html"
                         sh script: "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
-                        
+
                     }
                 }
             }
@@ -229,6 +229,12 @@ pipeline {
 
     // Sends the build status to Bitbucket. If the build was successful, Bitbucket will link to the deployed project on the web server.
     post {
+        always {
+            script {
+                echo "Returning to the main branch..."
+                generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
+            }
+        }
         success {
             script {
                 generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", COMMIT_HASH, true)

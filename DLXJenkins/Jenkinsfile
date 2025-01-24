@@ -212,16 +212,18 @@ pipeline {
                         unityUtil.buildProject(REPORT_DIR, PROJECT_DIR, UNITY_EXECUTABLE)
                     }
                 }
-                script{
-                    echo "Returning to the main branch..."
-                    generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH);
-                }
             }
         }
     }
 
     // When the pipeline finishes, sends the build status to Bitbucket.
     post {
+        always {
+            script {
+                echo "Returning to the main branch..."
+                generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
+            }
+        }
         success {
             script {
                 generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)

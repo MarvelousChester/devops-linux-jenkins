@@ -46,7 +46,6 @@ pipeline {
         SONARQUBE_SERVER="SonarServer"
         SONARQUBE_SCANNER="sonarqube-scanner"
         SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-Deployment"
-        SONAR_AUTH_TOKEN="sqp_9383804e1221acfb19f1e9a38898498b39b444cd"
     }
 
     stages {
@@ -172,28 +171,24 @@ pipeline {
                         withSonarQubeEnv(SONARQUBE_SERVER) {
                             String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
                                                 "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
-                                                "\"-Dsonar.host.url=http://localhost:9000\" " +
+                                                "\"-Dsonar.host.url=http://localhost:9000/sonarqube\" " +
                                                 "\"-Dsonar.sources=.\" " +
-                                                "\"-Dsonar.token=${env.SONAR_AUTH_TOKEN}\""
+                                                "\"-Dsonar.python.version=3.10\""
 
                             echo "Executing SonarQube scanner with command: ${sonarCommand}"
                             sh sonarCommand
                         }
                     }
                 }
-                script {
-                    // Set a timeout for waiting on the Quality Gate result
-                    int timeoutDuration = 3
-                    String timeoutUnit = 'MINUTES'
+                withCredentials([string(credentialsId: 'SonarQube', variable: 'SONAR_QUBE_AUTH_TOKEN')]) {
+                    script {
+                        Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
-                    timeout(time: timeoutDuration, unit: timeoutUnit) {
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                            // Wait for SonarQube Quality Gate results
-                            def qualityGate = waitForQualityGate()
-                            echo "Quality Gate Status: ${qualityGate.status}"
-
-                            if (qualityGate.status != 'OK') {
-                                error "SonarQube Quality Gate failed"
+                            if ((status.entireCodeStatus != "OK") && (status.newCodeStatus != "OK")) {
+                                error("Quality gate failed!")
+                            } else {
+                                echo "Quality gate passed!"
                             }
                         }
                     }
@@ -295,6 +290,12 @@ pipeline {
 
     // Sends the build status to Bitbucket. If the build was successful, Bitbucket will link to the deployed project on the web server.
     post {
+        always {
+            script {
+                echo "Returning to the main branch..."
+                generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
+            }
+        }
         success {
             script {
                 generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", COMMIT_HASH, true, true)

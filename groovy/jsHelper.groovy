@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 
 /**
  * Identifies subdirectories within a project folder that contain a `package.json` file.
@@ -226,4 +227,115 @@ void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
 
 
 
+/**
+ * Retrieves the quality gate status for a project and a specific build from the SonarQube server.
+ *
+ * - The <strong>project quality gate</strong> evaluates the entire project to determine whether it meets the quality gate standards.
+ * Thus, the project quality gate status reflects the overall quality of the entire project.
+ * - The <strong>build quality gate</strong>evaluates only the changed code in the PR branch to ensure it meets the quality gate standards.
+ * Therefore, the build quality gate status reflects the quality of the changes in the PR.
+ *
+ * @param String projectKey The key (identifier) of the SonarQube project.
+ * @param String adminToken The admin user's authentication token.
+ * @return Map
+ * A map containing the quality gate statuses:
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - entireCodeStatus: The status of the entire project (e.g., "OK", "WARN", "ERROR").
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - newCodeStatus   : The status of the changed code in the PR branch. <br>
+ * <br>
+ * Returns `null` if the quality gate status cannot be retrieved.
+ */
+Map checkQualityGateStatus(String projectKey, String adminToken) {
+    // API for getting the status of the entire project
+    // The response includes a building queue
+    String buildStatusURL = "http://localhost:9000/sonarqube/api/ce/component?component=${projectKey}"
+    String qualityGateResultURL = "http://localhost:9000/sonarqube/api/qualitygates/project_status?projectKey=${projectKey}"
+
+    // Try maximum five times to retrieve project quality gate status from SonarQube
+    int maxRetries = 5
+    String buildStatusAPIcall = "curl -u ${adminToken}: ${buildStatusURL}"
+
+    // Retry loop to handle IN_PROGRESS status or transient failures
+    for (int retryCount = 1; retryCount <= maxRetries; retryCount++) {
+        println "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
+        println "Send an HTTP GET request to SonarQube Server using ${buildStatusURL}"
+        
+        // Execute the HTTP GET request
+        def process = buildStatusAPIcall.execute()
+        process.waitFor()
+
+        // Check whether HTTP request was successfully executed or not
+        if (process.exitValue() != 0) {
+            println "HTTP request failed with exit code: ${process.exitValue()}"
+            break
+        }
+
+        // Store HTTP response as a String and transfer it to a Map
+        String buildStatusResponse = process.text
+        def buildStatus = new JsonSlurper().parseText(buildStatusResponse)
+
+        // Print the response in a pretty format
+        def prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(buildStatus))
+        println prettyJson
+
+        // Check whether the Quality Gate is still processing or not
+        if (buildStatus?.queue?.size() > 0) {
+            println "Code Analysis is still in progress..."
+
+            // Free the LazyMap and process object to avoid serialization issues
+            process = null
+            buildStatus = null
+
+            // Sleep for 10 seconds before retrying
+            sleep(10)
+            continue
+        }
+
+        // If the queue is empty, analysis is complete
+        println "Code Analysis is complete or no queue data."
+        println "Checking the analysis status of the overall code..."
+
+        // Check whether 'current' has a valid status
+        if (buildStatus?.current?.status) {
+            println "The status of project analysis is ${buildStatus.current.status}"
+
+            // Create analysis status API request form
+            String qualityGateResultAPIcall = "curl -u ${adminToken}: ${qualityGateResultURL}"
+            println "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
+            println "Send an HTTP GET request to SonarQube Server using ${qualityGateResultURL}"
+
+            // Execute the HTTP GET request for Quality Gate results
+            def newProcess = qualityGateResultAPIcall.execute()
+            newProcess.waitFor()
+
+            // Check whether HTTP request was successfully executed or not
+            if (newProcess.exitValue() != 0) {
+                println "HTTP request failed with exit code: ${newProcess.exitValue()}"
+                break
+            }
+
+            // Store HTTP response as a String and transfer it to a Map
+            String qualityGateResultResponse = newProcess.text
+            def qualityGateResult = new JsonSlurper().parseText(qualityGateResultResponse)
+
+            // Print the response in a pretty format
+            prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(qualityGateResult))
+            println prettyJson
+
+            // Check analysis status of new code
+            if (qualityGateResult?.projectStatus?.conditions?.size() > 0) {
+                def firstCondition = qualityGateResult.projectStatus.conditions[0] // Access the first condition safely
+                println "Analysis status of entire code is ${qualityGateResult.projectStatus.status}"
+                println "Analysis status of new code is ${firstCondition?.status ?: 'Unknown'}"
+
+                // Exit the function after successfully processing the Quality Gate results
+                return [entireCodeStatus: qualityGateResult.projectStatus.status, newCodeStatus: firstCondition.status] 
+            }
+
+        }
+    }
+
+    // If retries are exhausted, log a message
+    println "Max retries reached. Status may still be IN_PROGRESS."
+    return null
+}
 return this
