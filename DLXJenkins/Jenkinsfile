@@ -68,7 +68,7 @@ pipeline {
                     if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals("Y")){
                         echo "Local branch commit is up to date with remote branch, no changes. Aborting pipeline."
                         currentBuild.result = 'ABORTED'
-                        error("Branch is not up-to-date.")                     
+                        error("Branch is up to date, no changes.")                     
                     }
 
                     env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)

@@ -1,0 +1,135 @@
+def generalUtil
+
+pipeline {
+    agent any
+
+    tools {
+        // Use the configured Groovy tool and JDK 21
+        groovy 'Groovy'
+        jdk 'JDK 17'
+    }
+
+    parameters {
+        string(name: 'PR_BRANCH', defaultValue: '', description: '')
+        string(name: 'PR_DESTINATION_BRANCH', defaultValue: '', description: '')
+        string(name: 'PR_REPO_HTML', defaultValue: '', description: '')
+        string(name: 'PR_REPO_NAME', defaultValue: '', description: '')
+        string(name: 'PR_COMMIT', defaultValue: '', description: '')
+        string(name: 'PR_PROJECT', defaultValue: '', description: '')
+        string(name: 'PR_STATE', defaultValue: '', description: '')
+        string(name: 'TEST_RUN', defaultValue: '', description: 'This is a test run trigger. Fill in the parameter form with \'Y\' to run the pipeline without commit changes.')
+    }
+
+    triggers {
+        GenericTrigger(
+            genericVariables: [
+                [key: 'PR_BRANCH', value: '$.pullrequest.source.branch.name'],
+                [key: 'PR_DESTINATION_BRANCH', value: '$.pullrequest.destination.branch.name'],
+                [key: 'PR_REPO_HTML', value: '$.repository.links.self.href'],
+                [key: 'PR_REPO_NAME', value: '$.repository.name'],
+                [key: 'PR_COMMIT', value: '$.pullrequest.source.commit.hash'],
+                [key: 'PR_PROJECT', value: '$.repository.full_name'],
+                [key: 'PR_STATE', value: '$.pullrequest.state']
+            ],
+            tokenCredentialId: 'trigger-token',
+            regexpFilterText: '$PR_STATE',
+            regexpFilterExpression: 'OPEN'
+        )
+    }
+
+    environment {
+        CI_PIPELINE = "true"
+        REPO_SSH = "git@bitbucket.org:${params.PR_PROJECT}.git"
+        PROJECT_TYPE = "Jenkins_Project"
+        PROJECT_DIR = "${env.WORKSPACE}/${params.PR_REPO_NAME}"
+        REPORT_DIR = "${env.WORKSPACE}/docs"
+        BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
+        JAVA_HOME = tool 'JDK 17'
+        GROOVY_HOME = tool 'Groovy'
+        PATH = "${JAVA_HOME}/bin:${GROOVY_HOME}/bin:${PATH}" // Include both Java and Groovy in PATH
+        JOB_REPO = "${PR_REPO_HTML}"
+    }
+
+    stages {        
+        stage('Prepare Workspace') {
+            steps {
+                script {
+                    dir ("${PROJECT_DIR}") {
+                        echo "Preparing the workspace..."
+                        generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+
+                        if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals("Y")){
+                            echo "Local branch commit is up to date with remote branch, no changes. Aborting pipeline."
+                            currentBuild.result = 'ABORTED'
+                            error("Branch is up to date, no changes.")                     
+                        }
+
+                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+
+                        generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
+
+                        echo "Cloning or updating repository..."
+                        generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, params.PR_BRANCH)
+
+                        echo "Checking out branch ${params.PR_BRANCH}..."
+                        dir(PROJECT_DIR) {
+                            generalUtil.checkoutBranch(PROJECT_DIR, params.PR_BRANCH)
+                        }
+                    }
+                }
+            }
+        }
+        stage('Generate Groovydoc') {
+            steps {
+                script {
+                    echo "Generating Groovydoc..."
+                    dir(PROJECT_DIR) {
+                        // Capture the list of .groovy files into a variable
+                        def fileList = sh(script: "find ${PROJECT_DIR}/groovy -type f -name '*.groovy'", returnStdout: true).trim()
+
+                        if (!fileList) {
+                            error "No .groovy files found in ${PROJECT_DIR}/groovy"
+                        }
+
+                        // Debug: Print the file list
+                        echo "Files found for Groovydoc: ${fileList}"
+
+                        // Use the fileList with proper quoting
+                        sh """
+                        mkdir -p ${REPORT_DIR}
+                        groovydoc -verbose -d ${REPORT_DIR} ${fileList.replaceAll('\\s+', ' ')}
+                        """
+
+                        echo "Documentation generated at ${REPORT_DIR}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo "Cleaning up the workspace..."
+                // deleteDir() this is commented out for now, but in future we can do clean up if needed
+            }
+        }
+        success {
+            script {
+                echo "Groovydoc generation completed successfully."
+                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)
+            }
+        }
+        failure {
+            script {
+                echo "Groovydoc generation failed."
+                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH)
+            }
+        }
+        aborted {
+            script {
+                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH)
+            }
+        }
+    }
+}
