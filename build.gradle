@@ -1,0 +1,42 @@
+plugins {
+    id 'groovy'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+// Use the Groovy BOM (Bill of Materials) for Groovy 4
+    implementation platform('org.apache.groovy:groovy-bom:4.0.24') // Compatible BOM version for Groovy 4
+    implementation 'org.apache.groovy:groovy'
+    implementation 'org.apache.groovy:groovy-json' 
+
+    // Use the Spock BOM for Groovy 4 compatibility
+    testImplementation platform("org.spockframework:spock-bom:2.3-groovy-4.0") // Spock BOM for Groovy 4
+    testImplementation "org.spockframework:spock-core" // Core Spock framework
+    testImplementation "org.spockframework:spock-junit4" // For JUnit 4 integration, if needed
+}
+
+sourceSets {
+    main {
+        groovy {
+            srcDirs = ['groovy']
+        }
+    }
+    test {
+        groovy {
+            srcDirs = ['tests'] // Location for Spock test files
+        }
+    }
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+
+test {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}

@@ -7,6 +7,7 @@ pipeline {
         // Use the configured Groovy tool and JDK 21
         groovy 'Groovy'
         jdk 'JDK 17'
+        gradle 'Gradle'
     }
 
     parameters {
@@ -102,6 +103,20 @@ pipeline {
 
                         echo "Documentation generated at ${REPORT_DIR}"
                     }
+                }
+            }
+        }
+        stage('Run Unit Tests') {
+            steps {
+                script{
+                    sh 'gradle test'
+                }
+            }
+        }
+        stage('Publish Test Results') {
+            steps {
+                script {
+                    junit 'build/test-results/test/*.xml'
                 }
             }
         }

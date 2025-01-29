@@ -17,11 +17,11 @@ def findTestingDirs(projectFolder){
 
     if(subDirs){
         for(def dir:subDirs){
-            echo "dir: ${dir}"
+            println "Directory with package.json: ${dir}"
             directoriesToTest.add(dir.absolutePath)
         }
     }else{
-        echo "No subDirs are available"  
+        println "No directories with package.json found" 
     }
     return directoriesToTest.join(',')
 }
