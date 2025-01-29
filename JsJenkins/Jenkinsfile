@@ -184,17 +184,17 @@ pipeline {
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH, false, true)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH, false, true)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH, false, true)
             }
         }
     }
