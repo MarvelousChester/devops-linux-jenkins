@@ -303,8 +303,8 @@ def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber)
  */
 def cleanUpPRBranch(String prBranch) {
     // Find the path of 'find' directory searching tool
-    def findPath = sh(script: "which find", returnStdout: true).trim()
-    if (findPath != 0) {
+    def findPath = sh(script: "command -v find", returnStdout: true).trim()
+    if (!findPath) {
         echo "'find' directory searching tool is not found..."
         echo "Installing 'find' directory searching tool..."
         // install 'find' Linux seaching tool
