@@ -49,7 +49,7 @@ def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, 
         } else {
             echo "Invalid git repository. Cleaning up and cloning a fresh..."
             try {
-                def output = sh(script: "rm -rf ${projectDir}", returnStdout: true)
+                def output = sh(script: "rm -rf ${projectDir}/*", returnStdout: true)
                 echo "Command output: ${output}"
             } catch (Exception e) {
                 echo "Error: ${e.message}"
@@ -272,13 +272,13 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     echo "Attempting to publish results to web server"
     def destinationDir = buildNumber ? "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/Build-${buildNumber}/${reportType}-report" : "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/${reportType}-report"
 
-     sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
+     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
     \"mkdir -p ${destinationDir} \
     && sudo chown vconadmin:vconadmin ${destinationDir} \
     && sudo chmod 755 /var/www/html/${remoteProjectFolderName} \
     && sudo chmod -R 755 /var/www/html/${remoteProjectFolderName}/Reports \""""
 
-    sh "scp -i ~/.ssh/vconkey.pem -rp ${reportDir}/* vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:${destinationDir}"
+    sh "scp -i ${env.SSH_KEY} -rp ${reportDir}/* ${env.DLX_WEB_HOST_URL}:${destinationDir}"
 }
 
 /**
@@ -290,7 +290,7 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
  * @param ticketNumber The identifier for the ticket associated with the branch whose reports need to be removed.
  */
 def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber) {
-    sh """ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
     \"sudo rm -r -f /var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}\""""
 }
 

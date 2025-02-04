@@ -220,10 +220,10 @@ pipeline {
                     String serverPath = env.PROJECT_DIR.replace('\\', '/')
                     // Build server & client container image
                     echo "Build The Server Container Image"
-                    sh "sudo docker build -t webbuilds.azurecr.io/assetstore-server:latest ${serverPath}/server/."
+                    sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest ${serverPath}/${params.SERVER_SOURCE_FOLDER}/."
 
                     echo "Build The Client Container Image"
-                    sh "sudo docker build -t webbuilds.azurecr.io/assetstore-client:latest ${serverPath}/client-portual/."
+                    sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest ${serverPath}/${params.CLIENT_SOURCE_FOLDER}/."
                 }
             }
         }
@@ -264,24 +264,24 @@ pipeline {
 
                     // Push each container to the Azure Container Registry
                     echo "Push The Server Container Image to Azure Container Registry"
-                    sh "sudo docker push webbuilds.azurecr.io/assetstore-server:latest"
+                    sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"
 
                     echo "Push The Client Container Image to Azure Container Registry"
-                    sh "sudo docker push webbuilds.azurecr.io/assetstore-client:latest"  
+                    sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"  
 
 
                     // Update each instance from Azure Container App 
                     echo "Upupdate The Server Container App to the Latest Version"
-                    sh "sudo az containerapp update --name assetstore-server --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-server:latest"      
+                    sh "sudo az containerapp update --name ${params.SERVER_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"      
 
                     //echo "Upupdate The Client Container App to the Latest Version"
-                    sh "sudo az containerapp update --name assetstore-client --resource-group AssetStore --image webbuilds.azurecr.io/assetstore-client:latest"  
+                    sh "sudo az containerapp update --name ${params.CLIENT_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"  
 
 
                     // Clean up local images
                     echo "Delete The Server & Client Container Image from dlx-webhost Server"
-                    sh "sudo docker rmi webbuilds.azurecr.io/assetstore-server:latest"
-                    sh "sudo docker rmi webbuilds.azurecr.io/assetstore-client:latest"
+                    sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"
+                    sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"
                       
                 }
             }

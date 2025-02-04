@@ -202,11 +202,11 @@ pipeline {
                 echo "Deploying build to LTI web server..."
 
                 script {
-                    sh "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com \"sudo mkdir -p /var/www/html/${FOLDER_NAME} \
+                    sh "ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \"sudo mkdir -p /var/www/html/${FOLDER_NAME} \
                     && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}\""
-                    sh "scp -i ~/.ssh/vconkey.pem -rp ${PROJECT_DIR}/Builds/* \"vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com:/var/www/html/${FOLDER_NAME}\""
+                    sh "scp -i ${env.SSH_KEY} -rp ${PROJECT_DIR}/Builds/* \"${env.DLX_WEB_HOST_URL}:/var/www/html/${FOLDER_NAME}\""
                     //call script to copy that into the deployed server
-                    sh "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-webhost.canadacentral.cloudapp.azure.com 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
+                    sh "ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
                 }
 
                 script {
@@ -215,11 +215,11 @@ pipeline {
                         echo "List of DLX Repositories: ${DLX_PROJECT_LIST}"
 
                         // Create the directory and update the file permission
-                        sh script: "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com \"sudo mkdir -p /var/www/html/${FOLDER_NAME} && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}\""
+                        sh script: "ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} \"sudo mkdir -p /var/www/html/${FOLDER_NAME} && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}\""
                         // Secured copy all WebGL components to the econestoga dlx server
-                        sh script: "scp -i ~/.ssh/vconkey.pem -rp ${PROJECT_DIR}/Builds/* vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com:/var/www/html/${FOLDER_NAME}"
+                        sh script: "scp -i ${env.SSH_KEY} -rp ${PROJECT_DIR}/Builds/* ${env.DLX_ECONESTOGA_URL}:/var/www/html/${FOLDER_NAME}"
                         //call script to update the WebGL "index.html"
-                        sh script: "ssh -i ~/.ssh/vconkey.pem vconadmin@dlx-econestoga.canadacentral.cloudapp.azure.com 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
+                        sh script: "ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
 
                     }
                 }
