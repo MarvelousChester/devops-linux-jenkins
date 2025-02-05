@@ -105,8 +105,6 @@ def runUnityTests(unityExecutable, reportDir, projectDir, testType, enableReport
         // Add specific flags based on the test type
         if (tType == "EditMode") {
             flags += " -nographics"
-        } else if (tType == "PlayMode") {
-            flags += " -testCategory BuildServer"
         }
         return flags
     }
