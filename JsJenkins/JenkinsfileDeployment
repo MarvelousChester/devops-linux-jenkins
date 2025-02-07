@@ -195,10 +195,9 @@ pipeline {
                 }
             }
         }
-        // Builds the project if needed (containerization?)
-        stage ('Build Project') {
+        // Check the Docker and Azure conneciton
+        stage ('Check Build and Deploy Condition') {
             steps {
-                
                 script {
                     // Check whether the Docker is running or not
                     int isDockerRunning = sh(script: "sudo docker info > /dev/null 2>&1", returnStatus: true)
@@ -213,76 +212,142 @@ pipeline {
                 script {
                     // Login to Azure using system managed identity
                     sh "sudo az login --identity --username 0ca5eb7b-0dfc-4449-8c1e-c9dae95c7a97"
-                    
+
                     // Login to Azure Container Registry
-                    sh "sudo az acr login --name webbuilds"
-
-                    String serverPath = env.PROJECT_DIR.replace('\\', '/')
-                    // Build server & client container image
-                    echo "Build The Server Container Image"
-                    sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest ${serverPath}/${params.SERVER_SOURCE_FOLDER}/."
-
-                    echo "Build The Client Container Image"
-                    sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest ${serverPath}/${params.CLIENT_SOURCE_FOLDER}/."
+                    try {
+                        sh "sudo az acr login --name webbuilds"
+                        echo "Successfully logged in to Azure Container Registry."
+                    } catch (Exception e) {
+                        echo "Failed to login to Azure Container Registry."
+                        error("Pipeline terminated: Azure Container Registry login failed.")
+                    }
                 }
             }
         }
-        // Deploys the build on our remote web server. 
-        stage ('Deploy Build') {
+        // Deploys the server and client container to Azure Container Registry(acr) and updates container apps
+        stage ('Server Build and Deploy') {
+            // Skip this step if 'SERVER_SOURCE_FOLDER' parameter isn't provided
+            when {
+                expression { params.SERVER_SOURCE_FOLDER?.trim() }
+            }
             steps {
                 script {
+                    // Retreive versions of server container images from Azure container registry
+                    def server_latest_version = sh(
+                        script: "sudo az acr repository show-tags --name webbuilds --repository ${params.SERVER_CONTAINER_NAME} --output tsv | grep -v \"latest\" | sort -V | tail -n 1",
+                        returnStdout: true
+                    ).trim()
+                    echo "The latest server container version on ACR: ${server_latest_version}"
 
 
-
-                    /*
-                    >> Uncommented when the vConestoga team's version control strategy is solid          <<
-                    >> All the tags should be updated latest to server_version or client_version as well <<
-
-                    // Read container's version number from each server and client package.json
+                    // Read container's version number from each server package.json
                     echo "Get the version of each container image"
-                    def server_version = ""
-                    def client_version = ""
-
-                    dir("${PROJECT_DIR}/server") {
+                    def project_server_version = ""
+                    dir("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}") {
                         // Read the version value of package.json using Node.js.
-                        server_version = sh(
-                            script: "node -p \"require('./package.json').version\"",
-                            returnStdout: true
-                        ).trim()                              
-                         echo "Server Container Version: ${server_version}"
-                    }
-
-                    dir("${PROJECT_DIR}/client-portual") {
-                        // Read the version value of package.json using Node.js.
-                        client_version = sh(
+                        project_server_version = sh(
                             script: "node -p \"require('./package.json').version\"",
                             returnStdout: true
                         ).trim()
-                        echo "Client Container Version: ${client_version}"
+
+                        if (project_server_version == "") {
+                            error("Failed to read Server version...")
+                        }
+                        echo "Server Project Version: ${project_server_version}"
+
+                        // Check whether the server version in up-to-date
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                            if (!jsUtil.versionCompare(server_latest_version, project_server_version)) {
+                                warnError("Server version is not up to date. Skipping the deployment process.")
+                                currentBuild.result = 'UNSTABLE'
+                                return // Skip server deployment process
+                            }
+                            echo "Server version is up-to-date. Proceeding with deployment."
+                            String projectDir = env.PROJECT_DIR.replace('\\', '/')
+                            // Build server container image
+                            echo "Build The Server Container Image"
+                            sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version} ${projectDir}/${params.SERVER_SOURCE_FOLDER}/."
+
+
+                            // Push server container to the Azure Container Registry
+                            echo "Push The Server Container Image to Azure Container Registry"
+                            sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"
+
+
+                            // Update server instance from Azure Container App
+                            echo "Update The Server Container App to the Latest Version"
+                            sh "sudo az containerapp update --name ${params.SERVER_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"      
+
+
+                            // Clean up local images
+                            echo "Delete The Server Container"
+                            sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"
+                        }
                     }
-                    */
+                }
+            }
+        }
 
-                    // Push each container to the Azure Container Registry
-                    echo "Push The Server Container Image to Azure Container Registry"
-                    sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"
+        stage ('Client Build and Deploy') {
+            // Skip this step if 'CLIENT_SOURCE_FOLDER' parameter isn't provided
+            when {
+                expression { params.CLIENT_SOURCE_FOLDER?.trim() }
+            }
+            steps {
+                script {
+                    // Retreive versions of client container from Azure container registry
+                    def client_latest_version = sh(
+                        script: "sudo az acr repository show-tags --name webbuilds --repository ${params.CLIENT_CONTAINER_NAME} --output tsv | grep -v \"latest\" | sort -V | tail -n 1",
+                        returnStdout: true
+                    ).trim()
+                    echo "The latest client container version on ACR: ${client_latest_version}"
 
-                    echo "Push The Client Container Image to Azure Container Registry"
-                    sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"  
+
+                    // Read container's version number from client package.json
+                    echo "Get the version of each container image"
+                    def project_client_version = ""
+                    dir("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}") {
+                        // Read the version value of package.json using Node.js.
+                        project_client_version = sh(
+                            script: "node -p \"require('./package.json').version\"",
+                            returnStdout: true
+                        ).trim()
+
+                        if (project_client_version == "") {
+                            error("Failed to read Client version...")
+                        }
+                        echo "Client Project Version: ${project_client_version}"
+
+                            // Check whether the client version in up-to-date
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                            if (!jsUtil.versionCompare(client_latest_version, project_client_version)) {
+                                warnError("Client version is not up to date. Skipping the deployment process.")
+                                currentBuild.result = 'UNSTABLE'
+                                return // Skip client deployment process
+                            }
+                            echo "Client version is up-to-date. Proceeding with deployment."
+
+                            String projectDir = env.PROJECT_DIR.replace('\\', '/')
+                            // Build client container image
+                            echo "Build The Client Container Image"
+                            sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version} ${projectDir}/${params.CLIENT_SOURCE_FOLDER}/."
 
 
-                    // Update each instance from Azure Container App 
-                    echo "Upupdate The Server Container App to the Latest Version"
-                    sh "sudo az containerapp update --name ${params.SERVER_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"      
-
-                    //echo "Upupdate The Client Container App to the Latest Version"
-                    sh "sudo az containerapp update --name ${params.CLIENT_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"  
+                            // Push client container to the Azure Container Registry
+                            echo "Push The Client Container Image to Azure Container Registry"
+                            sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"  
 
 
-                    // Clean up local images
-                    echo "Delete The Server & Client Container Image from dlx-webhost Server"
-                    sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:latest"
-                    sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:latest"
-                      
+                            // Update client instance from Azure Container App
+                            echo "Update The Client Container App to the Latest Version"
+                            sh "sudo az containerapp update --name ${params.CLIENT_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"  
+
+
+                            // Clean up local images
+                            echo "Delete The Client Container Image"
+                            sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"
+                        }
+                    }
                 }
             }
         }

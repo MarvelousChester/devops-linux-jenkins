@@ -338,4 +338,75 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
     println "Max retries reached. Status may still be IN_PROGRESS."
     return null
 }
+
+
+/**
+ * <strong>Overview</strong>
+ * <br> Compares two version strings and determines if the current project version is up-to-date with the deployed ACR (Azure Container Registry) version.
+ * <br> This function is commonly used to verify version consistency between the deployment pipeline and the project build process.
+ *
+ * <br><strong>Function Description</strong>
+ * <br>- This function compares the deployed version (`azContainerVersion`) from ACR with the current project version (`projectVersion`).
+ * <br>- Versions are expected to follow the semantic versioning format (e.g., 1.0.0, 2.1.3).
+ * <br>- Each version string is split into major, minor, and patch components and compared numerically.
+ *
+ * <br><strong>Comparison Logic</strong>
+ * <br>- The version strings are tokenized using the dot (`.`) delimiter.
+ * <br>- Each token is validated to ensure it represents a positive integer.
+ * <br>- Missing version segments are treated as `0` for comparison purposes (e.g., `1.0` is treated as `1.0.0`).
+ * <br>- If the current deployed version is newer, the function returns `true`.
+ * <br>- If the project version is newer or versions are identical, it returns `false`.
+ *
+ * @param String azContainerVersion : The deployed container version from Azure Container Registry (ACR).
+ * @param String projectVersion     : The current project version to be compared.
+ * 
+ * @return boolean
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong>true</strong>  : If the deployed ACR version is newer than the project version.
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong>false</strong> : If the project version is up-to-date or newer than the deployed version.
+ */
+boolean versionCompare(String azContainerVersion, String projectVersion) {
+    println "versionCompare() executed"
+    // Closure Function
+    // : Check whether the string can be converted to an positive integer
+    Closure<Boolean> isInteger = { String value ->
+        value ==~ /^\d+$/  // Regex for integer validation (Only allow one or more positive int)
+    }
+
+    // Closure Function
+    // : Split the version string by '.' and convert to int array
+    Closure<int[]> parseVersion = { String version ->
+        // Split the version string based on .
+        def parts = version.tokenize('.')
+
+        // Check if all elements of a list are integers
+        if (parts.every { isInteger(it) }) {
+            // Transfer string to int and return as an int[]
+            return parts.collect { it as int } as int[]  // Convert to int[]
+        } else {
+            error "Invalid version format: '${version}'. All parts must be integers."
+        }
+    }
+
+    println "Latest Version on ACR: ${azContainerVersion}"
+    println "Project Version      : ${projectVersion}"
+
+    // Parse the version strings into int arrays
+    int[] currentParts = parseVersion(azContainerVersion)
+    int[] newParts = parseVersion(projectVersion)
+
+    // Compare Major.Minor.Patch versions
+    for (int i = 0; i < Math.max(currentParts.length, newParts.length); i++) {
+        // Handle missing version parts by treating them as 0
+        def v1 = (i < currentParts.length) ? currentParts[i] : 0
+        def v2 = (i < newParts.length) ? newParts[i] : 0
+
+        if (v1 < v2) {
+            return true  // Project version is newer
+        } else if (v1 > v2) {
+            return false // Project version is out-dated
+        }
+        // Compare the next index if the numbers are the same
+    }
+    return false  // Versions are identical
+}
 return this
