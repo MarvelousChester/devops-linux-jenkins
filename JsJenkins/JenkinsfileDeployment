@@ -1,11 +1,11 @@
 def generalUtil
 def jsUtil
-def mainBranches = ["main", "master"]
+def mainBranches = ['main', 'master']
 
 pipeline {
     agent any
 
-    tools {nodejs 'Node'}
+    tools { nodejs 'Node' }
 
     parameters {
         string(name: 'PR_BRANCH', defaultValue: '', description: '')
@@ -34,8 +34,8 @@ pipeline {
     }
 
     environment {
-        CI_PIPELINE = "false"
-        PROJECT_TYPE = "JS_Project"
+        CI_PIPELINE = 'false'
+        PROJECT_TYPE = 'JS_Project'
         PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
         REPORT_DIR = "${env.WORKSPACE}/DeploymentJob"
         JOB_REPO = "${PR_REPO_HTML}"
@@ -43,30 +43,30 @@ pipeline {
         DESTINATION_BRANCH = "${PR_DESTINATION_BRANCH}"
 
         // Environmental variables for static analysis
-        SONARQUBE_SERVER="SonarServer"
-        SONARQUBE_SCANNER="sonarqube-scanner"
-        SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-Deployment"
+        SONARQUBE_SERVER = 'SonarServer'
+        SONARQUBE_SCANNER = 'sonarqube-scanner'
+        SONAR_PROJECT_KEY = "${env.JOB_NAME.split('/')[0]}-Deployment"
     }
 
     stages {
         // Deletes the cloned branch from the build machine after it has been merged into main.
         // This prevents the build machine's storage from capping out.
-        stage ('Delete Merged Branch') {
+        stage('Delete Merged Branch') {
             steps {
                 script {
                     // Aborts the pipeline if it's not merging into the main.
-                    if(!mainBranches.contains(DESTINATION_BRANCH)){
-                        env.FAILURE_REASON = "Not merging to the main branch. Exiting the pipeline..."
+                    if (!mainBranches.contains(DESTINATION_BRANCH)) {
+                        env.FAILURE_REASON = 'Not merging to the main branch. Exiting the pipeline...'
                         currentBuild.result = 'ABORTED'
                         error(env.FAILURE_REASON)
                     }
 
                     generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                     jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
-                    
-                    def branch_path = sh (script: "/usr/bin/find ../ -type d -name \"${PR_BRANCH}\"", returnStdout: true)
+
+                    def branch_path = sh(script: "/usr/bin/find ../ -type d -name \"${PR_BRANCH}\"", returnStdout: true)
                     branch_path = branch_path.trim()
-                    if(!branch_path.isEmpty()){
+                    if (!branch_path.isEmpty()) {
                         sh "rm -r -f \"${branch_path}\""
                         sh "rm -r -f \"${branch_path}@tmp\""
                     }
@@ -79,7 +79,7 @@ pipeline {
         }
         // Prepares the WORKSPACE for the build by cleaning the project, pulling main, and then telling Bitbucket that the
         // build is in progress. It also checks to see if the project's Unity version is downloaded, and installs it if not.
-        stage ('Prepare WORKSPACE') {
+        stage('Prepare WORKSPACE') {
             environment {
                 REPO_SSH = "git@bitbucket.org:${PR_PROJECT}.git"
             }
@@ -90,35 +90,35 @@ pipeline {
                         env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
                     }
                     if (!fileExists("${PROJECT_DIR}")) {
-                        echo "First time running pipeline. Cloning main branch..."
+                        echo 'First time running pipeline. Cloning main branch...'
                         sh "git clone ${REPO_SSH} \"${PROJECT_DIR}\""
                     }
-            }
-                
-                dir ("${PROJECT_DIR}") {
+                }
+
+                dir("${PROJECT_DIR}") {
                     // Ensure it stays in the main branch
-                    echo "Checkout to the main branch..."
+                    echo 'Checkout to the main branch...'
                     sh "git checkout ${DESTINATION_BRANCH}"
-                    echo "Cleaning project..."
-                    sh "git reset --hard HEAD"
-                    echo "Pulling latest version of default branch..."
-                    sh "git pull"
+                    echo 'Cleaning project...'
+                    sh 'git reset --hard HEAD'
+                    echo 'Pulling latest version of default branch...'
+                    sh 'git pull'
                 }
 
                 script {
                     echo "Sending \'In Progress\' status to Bitbucket..."
-                    generalUtil.sendBuildStatus(env.WORKSPACE, "INPROGRESS", COMMIT_HASH)
+                    generalUtil.sendBuildStatus(env.WORKSPACE, 'INPROGRESS', COMMIT_HASH)
                     env.TEST_DIRECTORIES = jsUtil.findTestingDirs(PROJECT_DIR)
                     echo "Testing directories: ${env.TEST_DIRECTORIES}"
                 }
+            }
         }
-    }
-        stage('Install Dependencies'){
+        stage('Install Dependencies') {
             steps {
-                script {    
-                    //MUST USE BAT for npm commands, otherwise jenkins tries to use WSL for a linux distro                
-                    echo "Dependencies step"
-                    echo "Check NPM"
+                script {
+                    //MUST USE BAT for npm commands, otherwise jenkins tries to use WSL for a linux distro
+                    echo 'Dependencies step'
+                    echo 'Check NPM'
 
                     sh 'node -v'
                     sh 'npm -v'
@@ -128,20 +128,20 @@ pipeline {
                     jsUtil.installNpmInTestingDirs(env.TEST_DIRECTORIES)
 
                     // Change back to default directory
-                    sh(script: 'cd "' + env.WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
             }
         }
         //linting stage to check formatting
         stage('Linting')
         {
-            steps{
-                dir ("${REPORT_DIR}") {
-                    sh "mkdir -p linting_results"
+            steps {
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p linting_results'
                 }
                 script {
-                    echo "Linting step"
-                    jsUtil.executeLintingInTestingDirs(env.TEST_DIRECTORIES, false) //* Set the deploymentBuild argument as "false" for now 
+                    echo 'Linting step'
+                    jsUtil.executeLintingInTestingDirs(env.TEST_DIRECTORIES, false) //* Set the deploymentBuild argument as "false" for now
                 }
             }
         }
@@ -150,30 +150,30 @@ pipeline {
         stage('Unit Testing') {
             steps {
                 script {
-                    echo "Unit testing step"
+                    echo 'Unit testing step'
                     echo 'Run unit testing in testing directories'
-                    jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false) //* Set the deploymentBuild argument as "false" for now 
+                    jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false) //* Set the deploymentBuild argument as "false" for now
 
                     // Change back to default directory
-                    sh(script: 'cd "' + env.WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
             }
         }
-        // Runs static code analysis using SonarQube installed in Jenkins virtual machine. 
-        stage('Static Analysis'){
+        // Runs static code analysis using SonarQube installed in Jenkins virtual machine.
+        stage('Static Analysis') {
             steps {
-                dir ("${PROJECT_DIR}") {
+                dir("${PROJECT_DIR}") {
                     script {
-                        sh "pwd"
+                        sh 'pwd'
                         String scannerHome = tool 'sonarqube-scanner'
                         echo "SonarQube scanner located at: ${scannerHome}"
 
                         withSonarQubeEnv(SONARQUBE_SERVER) {
                             String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
                                                 "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
-                                                "\"-Dsonar.host.url=http://localhost:9000/sonarqube\" " +
-                                                "\"-Dsonar.sources=.\" " +
-                                                "\"-Dsonar.python.version=3.10\""
+                                                '\"-Dsonar.host.url=http://localhost:9000/sonarqube\" ' +
+                                                '\"-Dsonar.sources=.\" ' +
+                                                '\"-Dsonar.python.version=3.10\"'
 
                             echo "Executing SonarQube scanner with command: ${sonarCommand}"
                             sh sonarCommand
@@ -185,10 +185,10 @@ pipeline {
                         Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                            if ((status.entireCodeStatus != "OK") && (status.newCodeStatus != "OK")) {
-                                error("Quality gate failed!")
+                            if ((status.entireCodeStatus != 'OK') && (status.newCodeStatus != 'OK')) {
+                                error('Quality gate failed!')
                             } else {
-                                echo "Quality gate passed!"
+                                echo 'Quality gate passed!'
                             }
                         }
                     }
@@ -196,36 +196,36 @@ pipeline {
             }
         }
         // Check the Docker and Azure conneciton
-        stage ('Check Build and Deploy Condition') {
+        stage('Check Build and Deploy Condition') {
             steps {
                 script {
                     // Check whether the Docker is running or not
-                    int isDockerRunning = sh(script: "sudo docker info > /dev/null 2>&1", returnStatus: true)
+                    int isDockerRunning = sh(script: 'sudo docker info > /dev/null 2>&1', returnStatus: true)
                     echo "isDockerRunning: ${isDockerRunning}"
 
                     if (isDockerRunning != 0) {
-                        echo "Docker is not running or not available."
-                        error("Docker is not available. Please start Docker and try again.")
+                        echo 'Docker is not running or not available.'
+                        error('Docker is not available. Please start Docker and try again.')
                     }
                 }
 
                 script {
                     // Login to Azure using system managed identity
-                    sh "sudo az login --identity --username 0ca5eb7b-0dfc-4449-8c1e-c9dae95c7a97"
+                    sh 'sudo az login --identity --username 0ca5eb7b-0dfc-4449-8c1e-c9dae95c7a97'
 
                     // Login to Azure Container Registry
                     try {
-                        sh "sudo az acr login --name webbuilds"
-                        echo "Successfully logged in to Azure Container Registry."
+                        sh 'sudo az acr login --name webbuilds'
+                        echo 'Successfully logged in to Azure Container Registry.'
                     } catch (Exception e) {
-                        echo "Failed to login to Azure Container Registry."
-                        error("Pipeline terminated: Azure Container Registry login failed.")
+                        echo 'Failed to login to Azure Container Registry.'
+                        error('Pipeline terminated: Azure Container Registry login failed.')
                     }
                 }
             }
         }
         // Deploys the server and client container to Azure Container Registry(acr) and updates container apps
-        stage ('Server Build and Deploy') {
+        stage('Server Build and Deploy') {
             // Skip this step if 'SERVER_SOURCE_FOLDER' parameter isn't provided
             when {
                 expression { params.SERVER_SOURCE_FOLDER?.trim() }
@@ -239,10 +239,9 @@ pipeline {
                     ).trim()
                     echo "The latest server container version on ACR: ${server_latest_version}"
 
-
                     // Read container's version number from each server package.json
-                    echo "Get the version of each container image"
-                    def project_server_version = ""
+                    echo 'Get the version of each container image'
+                    def project_server_version = ''
                     dir("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}") {
                         // Read the version value of package.json using Node.js.
                         project_server_version = sh(
@@ -250,37 +249,34 @@ pipeline {
                             returnStdout: true
                         ).trim()
 
-                        if (project_server_version == "") {
-                            error("Failed to read Server version...")
+                        if (project_server_version == '') {
+                            error('Failed to read Server version...')
                         }
                         echo "Server Project Version: ${project_server_version}"
 
                         // Check whether the server version in up-to-date
                         catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                             if (!jsUtil.versionCompare(server_latest_version, project_server_version)) {
-                                warnError("Server version is not up to date. Skipping the deployment process.")
+                                warnError('Server version is not up to date. Skipping the deployment process.')
                                 currentBuild.result = 'UNSTABLE'
                                 return // Skip server deployment process
                             }
-                            echo "Server version is up-to-date. Proceeding with deployment."
+                            echo 'Server version is up-to-date. Proceeding with deployment.'
                             String projectDir = env.PROJECT_DIR.replace('\\', '/')
                             // Build server container image
-                            echo "Build The Server Container Image"
+                            echo 'Build The Server Container Image'
                             sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version} ${projectDir}/${params.SERVER_SOURCE_FOLDER}/."
 
-
                             // Push server container to the Azure Container Registry
-                            echo "Push The Server Container Image to Azure Container Registry"
+                            echo 'Push The Server Container Image to Azure Container Registry'
                             sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"
 
-
                             // Update server instance from Azure Container App
-                            echo "Update The Server Container App to the Latest Version"
-                            sh "sudo az containerapp update --name ${params.SERVER_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"      
-
+                            echo 'Update The Server Container App to the Latest Version'
+                            sh "sudo az containerapp update --name ${params.SERVER_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"
 
                             // Clean up local images
-                            echo "Delete The Server Container"
+                            echo 'Delete The Server Container'
                             sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.SERVER_CONTAINER_NAME}:${project_server_version}"
                         }
                     }
@@ -288,7 +284,7 @@ pipeline {
             }
         }
 
-        stage ('Client Build and Deploy') {
+        stage('Client Build and Deploy') {
             // Skip this step if 'CLIENT_SOURCE_FOLDER' parameter isn't provided
             when {
                 expression { params.CLIENT_SOURCE_FOLDER?.trim() }
@@ -302,10 +298,9 @@ pipeline {
                     ).trim()
                     echo "The latest client container version on ACR: ${client_latest_version}"
 
-
                     // Read container's version number from client package.json
-                    echo "Get the version of each container image"
-                    def project_client_version = ""
+                    echo 'Get the version of each container image'
+                    def project_client_version = ''
                     dir("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}") {
                         // Read the version value of package.json using Node.js.
                         project_client_version = sh(
@@ -313,67 +308,64 @@ pipeline {
                             returnStdout: true
                         ).trim()
 
-                        if (project_client_version == "") {
-                            error("Failed to read Client version...")
+                        if (project_client_version == '') {
+                            error('Failed to read Client version...')
                         }
                         echo "Client Project Version: ${project_client_version}"
 
-                            // Check whether the client version in up-to-date
+                        // Check whether the client version in up-to-date
                         catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                             if (!jsUtil.versionCompare(client_latest_version, project_client_version)) {
-                                warnError("Client version is not up to date. Skipping the deployment process.")
+                                warnError('Client version is not up to date. Skipping the deployment process.')
                                 currentBuild.result = 'UNSTABLE'
                                 return // Skip client deployment process
                             }
-                            echo "Client version is up-to-date. Proceeding with deployment."
+                            echo 'Client version is up-to-date. Proceeding with deployment.'
 
                             String projectDir = env.PROJECT_DIR.replace('\\', '/')
                             // Build client container image
-                            echo "Build The Client Container Image"
+                            echo 'Build The Client Container Image'
                             sh "sudo docker build -t ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version} ${projectDir}/${params.CLIENT_SOURCE_FOLDER}/."
 
-
                             // Push client container to the Azure Container Registry
-                            echo "Push The Client Container Image to Azure Container Registry"
-                            sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"  
-
+                            echo 'Push The Client Container Image to Azure Container Registry'
+                            sh "sudo docker push ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"
 
                             // Update client instance from Azure Container App
-                            echo "Update The Client Container App to the Latest Version"
-                            sh "sudo az containerapp update --name ${params.CLIENT_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"  
-
+                            echo 'Update The Client Container App to the Latest Version'
+                            sh "sudo az containerapp update --name ${params.CLIENT_CONTAINER_NAME} --resource-group ${params.AZ_RESOURCE_GROUP} --image ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"
 
                             // Clean up local images
-                            echo "Delete The Client Container Image"
+                            echo 'Delete The Client Container Image'
                             sh "sudo docker rmi ${env.AZ_CONTAINER_REGISTRY_NAME}/${params.CLIENT_CONTAINER_NAME}:${project_client_version}"
                         }
                     }
                 }
             }
         }
-}
+    }
 
     // Sends the build status to Bitbucket. If the build was successful, Bitbucket will link to the deployed project on the web server.
     post {
         always {
             script {
-                echo "Returning to the main branch..."
+                echo 'Returning to the main branch...'
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH, true, true)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', COMMIT_HASH, true, true)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH, true, true)
             }
         }
     }

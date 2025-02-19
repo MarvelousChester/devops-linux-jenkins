@@ -4,24 +4,24 @@ import groovy.json.JsonOutput
 /**
  * Identifies subdirectories within a project folder that contain a `package.json` file.
  * This function is typically used to find directories that require testing or dependency installation.
- * 
+ *
  * @param projectFolder The path to the root project folder to scan for subdirectories.
  * @return A comma-separated string of absolute paths to the subdirectories containing a `package.json` file.
  */
-def findTestingDirs(projectFolder){
+def findTestingDirs(projectFolder) {
     def directoriesToTest = []
     def projectDir = new File(projectFolder)
 
     // Check if the subdirectories have pacakge.json file
     def subDirs = projectDir.listFiles().findAll { it.isDirectory() && new File(it, 'package.json').exists() }
 
-    if(subDirs){
-        for(def dir:subDirs){
+    if (subDirs) {
+        for (def dir:subDirs) {
             println "Directory with package.json: ${dir}"
             directoriesToTest.add(dir.absolutePath)
         }
-    }else{
-        println "No directories with package.json found" 
+    }else {
+        println 'No directories with package.json found'
     }
     return directoriesToTest.join(',')
 }
@@ -30,7 +30,7 @@ def findTestingDirs(projectFolder){
  * Installs npm dependencies in the specified testing directories.
  * This function performs an npm audit before installation, processes the audit report using a Python script,
  * and then runs `npm install` to install dependencies.
- * 
+ *
  * @param testingDirs A comma-separated string of directory paths where npm dependencies need to be installed.
  *                    If null or empty, the function will exit without performing any operations.
  */
@@ -60,7 +60,7 @@ void installNpmInTestingDirs(String testingDirs) {
         // Check and read the audit report
         File reportFile = new File("${dirPath}/audit-report.json")
         if (reportFile.exists()) {
-            echo "Audit Report Content:"
+            echo 'Audit Report Content:'
             echo reportFile.text
 
             // Call the Python script to process the audit report
@@ -88,10 +88,10 @@ void installNpmInTestingDirs(String testingDirs) {
 
 /**
  * Runs unit tests in the specified testing directories using npm.
- * This function iterates over the provided directories, runs `npm run test` in each, 
- * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort 
+ * This function iterates over the provided directories, runs `npm run test` in each,
+ * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort
  * on test failures.
- * 
+ *
  * @param testingDirs A comma-separated string of directory paths where unit tests should be executed.
  *                    If null or empty, the function will exit without performing any operations.
  * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on test failure.
@@ -135,10 +135,10 @@ void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
 /**
  * Checks the installed versions of Node.js and NPM, and retrieves the current NPM configuration.
  * This function handles the commands for the appropriate environment being Windows, or Linux.
- * 
+ *
  * The versions and configuration are echoed to the console for verification.
  */
-def checkNodeVersion(){
+def checkNodeVersion() {
     // Cross-platform handling for Node and NPM checks
     try {
         if (isUnix()) {
@@ -172,7 +172,7 @@ def checkNodeVersion(){
  * @param workingDir (Optional) This is the directory to run the command in (default: ".")
  * @return 0 for command success, 1 for command fail.
  */
-def runCommandReturnStatus(command, String workingDir = ".") {
+def runCommandReturnStatus(command, String workingDir = '.') {
     if (isUnix()) {
         return sh(script: "cd \"${workingDir}\" && ${command}", returnStatus: true)
     } else {
@@ -186,7 +186,7 @@ def runCommandReturnStatus(command, String workingDir = ".") {
  * This function iterates through the given directories, runs `npm run lint` in each,
  * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort
  * on linting failures.
- * 
+ *
  * @param testingDirs A comma-separated string of directory paths where linting should be executed.
  *                    If null or empty, the function will exit without performing any operations.
  * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on linting failure.
@@ -225,8 +225,6 @@ void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
     }
 }
 
-
-
 /**
  * Retrieves the quality gate status for a project and a specific build from the SonarQube server.
  *
@@ -256,9 +254,9 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
     // Retry loop to handle IN_PROGRESS status or transient failures
     for (int retryCount = 1; retryCount <= maxRetries; retryCount++) {
-        println "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
+        println '----------------------------------------------------------------------------------------------------------------------------------------------------------------'
         println "Send an HTTP GET request to SonarQube Server using ${buildStatusURL}"
-        
+
         // Execute the HTTP GET request
         def process = buildStatusAPIcall.execute()
         process.waitFor()
@@ -279,7 +277,7 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
         // Check whether the Quality Gate is still processing or not
         if (buildStatus?.queue?.size() > 0) {
-            println "Code Analysis is still in progress..."
+            println 'Code Analysis is still in progress...'
 
             // Free the LazyMap and process object to avoid serialization issues
             process = null
@@ -291,8 +289,8 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
         }
 
         // If the queue is empty, analysis is complete
-        println "Code Analysis is complete or no queue data."
-        println "Checking the analysis status of the overall code..."
+        println 'Code Analysis is complete or no queue data.'
+        println 'Checking the analysis status of the overall code...'
 
         // Check whether 'current' has a valid status
         if (buildStatus?.current?.status) {
@@ -300,7 +298,7 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
             // Create analysis status API request form
             String qualityGateResultAPIcall = "curl -u ${adminToken}: ${qualityGateResultURL}"
-            println "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
+            println '----------------------------------------------------------------------------------------------------------------------------------------------------------------'
             println "Send an HTTP GET request to SonarQube Server using ${qualityGateResultURL}"
 
             // Execute the HTTP GET request for Quality Gate results
@@ -328,17 +326,15 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
                 println "Analysis status of new code is ${firstCondition?.status ?: 'Unknown'}"
 
                 // Exit the function after successfully processing the Quality Gate results
-                return [entireCodeStatus: qualityGateResult.projectStatus.status, newCodeStatus: firstCondition.status] 
+                return [entireCodeStatus: qualityGateResult.projectStatus.status, newCodeStatus: firstCondition.status]
             }
-
         }
     }
 
     // If retries are exhausted, log a message
-    println "Max retries reached. Status may still be IN_PROGRESS."
+    println 'Max retries reached. Status may still be IN_PROGRESS.'
     return null
 }
-
 
 /**
  * <strong>Overview</strong>
@@ -359,13 +355,13 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
  *
  * @param String azContainerVersion : The deployed container version from Azure Container Registry (ACR).
  * @param String projectVersion     : The current project version to be compared.
- * 
+ *
  * @return boolean
  * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong>true</strong>  : If the deployed ACR version is newer than the project version.
  * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong>false</strong> : If the project version is up-to-date or newer than the deployed version.
  */
 boolean versionCompare(String azContainerVersion, String projectVersion) {
-    println "versionCompare() executed"
+    println 'versionCompare() executed'
     // Closure Function
     // : Check whether the string can be converted to an positive integer
     Closure<Boolean> isInteger = { String value ->
@@ -384,8 +380,8 @@ boolean versionCompare(String azContainerVersion, String projectVersion) {
             return parts.collect { it as int } as int[]  // Convert to int[]
         } else {
             error "Invalid version format: '${version}'. All parts must be integers."
-        }
     }
+}
 
     println "Latest Version on ACR: ${azContainerVersion}"
     println "Project Version      : ${projectVersion}"
@@ -405,7 +401,7 @@ boolean versionCompare(String azContainerVersion, String projectVersion) {
         } else if (v1 > v2) {
             return false // Project version is out-dated
         }
-        // Compare the next index if the numbers are the same
+    // Compare the next index if the numbers are the same
     }
     return false  // Versions are identical
 }

@@ -1,5 +1,3 @@
-def pass = "Pass"
-def fail = "Fail"
 def generalUtil
 def jsUtil
 
@@ -40,8 +38,8 @@ pipeline {
     }
 
     environment {
-        CI_PIPELINE = "true"
-        PROJECT_TYPE = "JS_Project"
+        CI_PIPELINE = 'true'
+        PROJECT_TYPE = 'JS_Project'
         PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
         REPORT_DIR = "${env.WORKSPACE}/PRJob/${PR_BRANCH}/Build_${BUILD_NUMBER}"
         JOB_REPO = "${PR_REPO_HTML}"
@@ -51,54 +49,54 @@ pipeline {
         DESTINATION_BRANCH = "${PR_DESTINATION_BRANCH}"
 
         // Environmental variables for static analysis
-        SONARQUBE_SERVER="SonarServer"
-        SONARQUBE_SCANNER="sonarqube-scanner"
-        SONAR_PROJECT_KEY="${env.JOB_NAME.split('/')[0]}-PR"
+        SONARQUBE_SERVER = 'SonarServer'
+        SONARQUBE_SCANNER = 'sonarqube-scanner'
+        SONAR_PROJECT_KEY = "${env.JOB_NAME.split('/')[0]}-PR"
     }
 
     stages {
         // Prepare WORKSPACE: Environment Setup, WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
-                dir ("${PROJECT_DIR}") {
-                //send 'In Progress' status to Bitbucket
-                script {
-                    // print jenkins env configurations
-                    sh 'env'
-                    generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
-                    jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
-                    
-                    if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH)){
-                        echo "Current branch is up-to-date with origin/${destinationBranch}. Aborting pipeline."
-                        currentBuild.result = 'ABORTED'
-                        error("Branch is up to date, no changes.")                     
+                dir("${PROJECT_DIR}") {
+                    //send 'In Progress' status to Bitbucket
+                    script {
+                        // print jenkins env configurations
+                        sh 'env'
+                        generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                        jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
+
+                        if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH)) {
+                            echo "Current branch is up-to-date with origin/${destinationBranch}. Aborting pipeline."
+                            currentBuild.result = 'ABORTED'
+                            error('Branch is up to date, no changes.')
+                        }
+
+                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+
+                        echo 'initialize environment'
+                        generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
+
+                        echo 'clone Or Update Repo'
+                        generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
+
+                        echo 'merge Branch If Needed'
+                        generalUtil.mergeBranchIfNeeded()
+
+                        // Save directories pipeline is going to test. unique to JS pipeline
+                        echo 'find Testing Dirs'
+                        env.TEST_DIRECTORIES = jsUtil.findTestingDirs(PROJECT_DIR)
+                        echo "Testing directories: ${env.TEST_DIRECTORIES}"
                     }
-
-                    env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-
-                    echo "initialize environment"
-                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
-
-                    echo "clone Or Update Repo"
-                    generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
- 
-                    echo "merge Branch If Needed"
-                    generalUtil.mergeBranchIfNeeded()
-
-                    // Save directories pipeline is going to test. unique to JS pipeline
-                    echo "find Testing Dirs"
-                    env.TEST_DIRECTORIES = jsUtil.findTestingDirs(PROJECT_DIR)
-                    echo "Testing directories: ${env.TEST_DIRECTORIES}"
-                    } 
                 }
             }
         }
-        stage('Install Dependencies'){
+        stage('Install Dependencies') {
             steps {
-                script {    
-                    //MUST USE BAT for npm commands, otherwise jenkins tries to use WSL for a linux distro                
-                    echo "Dependencies step"
-                    echo "Check NPM"
+                script {
+                    //MUST USE BAT for npm commands, otherwise jenkins tries to use WSL for a linux distro
+                    echo 'Dependencies step'
+                    echo 'Check NPM'
 
                     jsUtil.checkNodeVersion()
 
@@ -106,17 +104,17 @@ pipeline {
                     jsUtil.installNpmInTestingDirs(env.TEST_DIRECTORIES)
 
                     // Change back to default directory
-                    sh(script: 'cd "' + env.WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
             }
         }
-        stage('Linting'){
+        stage('Linting') {
             steps {
-                dir ("${REPORT_DIR}") {
-                    sh "mkdir -p linting_results"
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p linting_results'
                 }
                 script {
-                    echo "Linting step"
+                    echo 'Linting step'
                     jsUtil.executeLintingInTestingDirs(env.TEST_DIRECTORIES, false)
                 }
             }
@@ -126,30 +124,30 @@ pipeline {
         stage('Unit Testing') {
             steps {
                 script {
-                    echo "Unit testing step"
+                    echo 'Unit testing step'
                     echo 'Run unit testing in testing directories'
                     jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false)
 
                     // Change back to default directory
-                    sh(script: 'cd "' + env.WORKSPACE + '"') 
+                    sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
             }
         }
-        // Runs static code analysis using SonarQube installed in Jenkins virtual machine. 
-        stage('Static Analysis'){
+        // Runs static code analysis using SonarQube installed in Jenkins virtual machine.
+        stage('Static Analysis') {
             steps {
-                dir ("${PROJECT_DIR}") {
+                dir("${PROJECT_DIR}") {
                     script {
-                        sh "pwd"
+                        sh 'pwd'
                         String scannerHome = tool 'sonarqube-scanner'
                         echo "SonarQube scanner located at: ${scannerHome}"
 
                         withSonarQubeEnv(SONARQUBE_SERVER) {
                             String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
                                                 "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
-                                                "\"-Dsonar.host.url=http://localhost:9000/sonarqube\" " +
-                                                "\"-Dsonar.sources=.\" "  +
-                                                "\"-Dsonar.python.version=3.10\""
+                                                '\"-Dsonar.host.url=http://localhost:9000/sonarqube\" ' +
+                                                '\"-Dsonar.sources=.\" '  +
+                                                '\"-Dsonar.python.version=3.10\"'
 
                             echo "Executing SonarQube scanner with command: ${sonarCommand}"
                             sh sonarCommand
@@ -161,15 +159,14 @@ pipeline {
                         Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                        if ((status.entireCodeStatus != "OK") && (status.newCodeStatus != "OK")) {
-                            error("Quality gate failed!")
+                            if ((status.entireCodeStatus != 'OK') && (status.newCodeStatus != 'OK')) {
+                                error('Quality gate failed!')
                         } else {
-                            echo "Quality gate passed!"
+                                echo 'Quality gate passed!'
+                            }
                         }
                     }
-                    }
                 }
-                
             }
         }
     }
@@ -178,23 +175,23 @@ pipeline {
     post {
         always {
             script {
-                echo "Returning to the main branch..."
+                echo 'Returning to the main branch...'
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', env.COMMIT_HASH, false, true)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', env.COMMIT_HASH, false, true)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH, false, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', env.COMMIT_HASH, false, true)
             }
         }
     }

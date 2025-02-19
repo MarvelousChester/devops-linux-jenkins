@@ -1,7 +1,7 @@
-def editMode = "EditMode"
-def playMode = "PlayMode"
-def pass = "Pass"
-def fail = "Fail"
+def editMode = 'EditMode'
+def playMode = 'PlayMode'
+def pass = 'Pass'
+def fail = 'Fail'
 def generalUtil
 def unityUtil
 
@@ -42,8 +42,8 @@ pipeline {
     }
 
     environment {
-        CI_PIPELINE = "true"
-        PROJECT_TYPE = "Unity_Project"
+        CI_PIPELINE = 'true'
+        PROJECT_TYPE = 'Unity_Project'
         PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
         REPORT_DIR = "${env.WORKSPACE}/PRJob/${PR_BRANCH}"
         JOB_REPO = "${PR_REPO_HTML}"
@@ -57,50 +57,49 @@ pipeline {
         // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
-                dir ("${PROJECT_DIR}") {
-                //send 'In Progress' status to Bitbucket
-                script {
-                    // print jenkins env configurations
-                    sh 'env'
-                    generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
-                    unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
-                    
-                    if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals("Y")){
-                        echo "Local branch commit is up to date with remote branch, no changes. Aborting pipeline."
-                        currentBuild.result = 'ABORTED'
-                        error("Branch is up to date, no changes.")                     
-                    }
+                dir("${PROJECT_DIR}") {
+                    //send 'In Progress' status to Bitbucket
+                    script {
+                        // print jenkins env configurations
+                        sh 'env'
+                        generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                        unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
 
-                    env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+                        if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
+                            echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
+                            currentBuild.result = 'ABORTED'
+                            error('Branch is up to date, no changes.')
+                        }
 
-                    generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
+                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
-                    generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
+                        generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
 
-                    generalUtil.mergeBranchIfNeeded()
+                        generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
 
+                        generalUtil.mergeBranchIfNeeded()
                     }
                 }
 
                 // Unity Setup: Identify the version of Unity Editor for the project
-                echo "Identifying Unity version..."
+                echo 'Identifying Unity version...'
                 script {
                     env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
                 }
 
-                // Initial running the project on Unity Editor    
-                echo "Running Unity in batch mode to setup initial files..."
-                dir ("${PROJECT_DIR}") {
+                // Initial running the project on Unity Editor
+                echo 'Running Unity in batch mode to setup initial files...'
+                dir("${PROJECT_DIR}") {
                     script {
                         def logFile = "${REPORT_DIR}/batchmode_results/batch_mode_execution.log"
 
                         def flags = "-batchmode -nographics -projectPath \"${PROJECT_DIR}\" -executeMethod \"Packages.Rider.Editor.RiderScriptEditor.SyncSolution\" -logFile \"${logFile}\" -quit "
-                        
+
                         echo "Flags set to: ${flags}"
-                        
+
                         // Execute Unity in batch mode with memory settings
                         def exitCode = sh(script: """\"${env.UNITY_EXECUTABLE}\" ${flags}""", returnStatus: true)
-                        
+
                         // Handle exit code
                         if (exitCode != 0) {
                             echo "Unity batch mode execution failed with exit code: ${exitCode}. Please check the log at ${logFile} for details."
@@ -110,49 +109,50 @@ pipeline {
                 }
             }
         }
-        stage('Linting'){
-            steps{
+        stage('Linting') {
+            steps {
                 //Linting
-                dir ("${REPORT_DIR}") {
-                    sh "mkdir -p linting_results"
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p linting_results'
                 }
-                echo "running lint script"
+                echo 'running lint script'
                 script {
                     sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
                     echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
-                    def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true 
+                    def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true
                     echo "After bash call, exit code: ${exitCode}"
                     //handle exit code here
-                    if(exitCode != 0)
-                    {
-                        echo "Error linting calling report"
+                    if (exitCode != 0) {
+                        echo 'Error linting calling report'
                         echo "Parameters for Python Fail: \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
-                        if(exitCode == 2) //report was generated call python script
-                        {
+
+                        if (exitCode == 2) {
+                            //report was generated call python script {
                             sh script: "python \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'"
                         }
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE'){
+
+                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                             error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
                         }
                     }
-                    else
-                    {
+                    else{
                         echo "Parameters for Python Pass: \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
                         sh script: "python \'${env.WORKSPACE}/python/linting_error_report.py\' \'${REPORT_DIR}/linting_results/format-report.json\' ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'"
                     }
                 }
             }
         }
+
         // Runs the project's EditMode tests, and then generates a test report and a code coverage report.
         // Sends the test results to Bitbucket once the tests complete.
         stage('EditMode Tests') {
             steps {
-                dir ("${REPORT_DIR}") {
-                    sh "mkdir -p test_results"
-                    sh "mkdir -p coverage_results"
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p test_results'
+                    sh 'mkdir -p coverage_results'
                 }
-                echo "Running EditMode tests..."
-                dir ("${PROJECT_DIR}") {
+                echo 'Running EditMode tests...'
+                dir("${PROJECT_DIR}") {
                     script {
                         unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, editMode, true, false)
                     }
@@ -163,9 +163,9 @@ pipeline {
         // PlayMode tests need to be run once in the editor to generate the overall coverage report.
         stage('PlayMode Tests in Editor') {
             steps {
-                echo "Running PlayMode tests in Editor environment..."
-                dir ("${PROJECT_DIR}") {
-                    retry (5) {
+                echo 'Running PlayMode tests in Editor environment...'
+                dir("${PROJECT_DIR}") {
+                    retry(5) {
                         script {
                             unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, playMode, true, false)
                         }
@@ -177,7 +177,7 @@ pipeline {
         // Then sends a coverage report to Bitbucket.
         stage('Send Reports') {
             steps {
-                echo "Generating code coverage report..."
+                echo 'Generating code coverage report...'
                 dir("${PROJECT_DIR}") {
                     sh """\"${UNITY_EXECUTABLE}\" \
                     -projectPath . \
@@ -189,12 +189,12 @@ pipeline {
                     -coverageResultsPath \"${REPORT_DIR}/coverage_results\" \
                     -coverageOptions \"useProjectSettings\" \
                     -quit"""
- 
+
                     script {
-                        generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", "CodeCoverage")
-                    }  
+                        generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", 'CodeCoverage')
+                    }
                 }
-                echo "Sending test report."
+                echo 'Sending test report.'
                 script {
                     unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
                 }
@@ -203,40 +203,40 @@ pipeline {
         //Builds the project and saves it.
         stage('Build Project') {
             steps {
-                echo "Building Unity project..."
+                echo 'Building Unity project...'
                 sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\"" //The following line assumed this folder exists in every project, adding check to ensure it does.
                 sh "cp Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
 
-                retry (5) {
+                retry(5) {
                     script {
                         unityUtil.buildProject(REPORT_DIR, PROJECT_DIR, UNITY_EXECUTABLE)
                     }
                 }
             }
         }
-    }
+        }
 
     // When the pipeline finishes, sends the build status to Bitbucket.
     post {
         always {
             script {
-                echo "Returning to the main branch..."
+                echo 'Returning to the main branch...'
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "SUCCESSFUL", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', env.COMMIT_HASH)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "FAILED", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', env.COMMIT_HASH)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, "STOPPED", env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', env.COMMIT_HASH)
             }
         }
     }

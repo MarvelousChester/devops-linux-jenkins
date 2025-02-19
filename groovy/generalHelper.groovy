@@ -1,6 +1,6 @@
 /**
  * Clones or updates a Git repository in the specified directory.
- * If the project directory does not exist or does not contain the expected project type, 
+ * If the project directory does not exist or does not contain the expected project type,
  * the repository is cloned from scratch. Otherwise, the latest changes are fetched.
  *
  * @param projectType The type of project to check for (used to locate the directory).
@@ -8,46 +8,46 @@
  * @param projectDir  The full path to the project directory.
  * @param repoSsh     The SSH URL of the repository to clone or update.
  * @param branch      The branch to check out and pull updates from.
- * 
+ *
  * @throws MissingPropertyException If required parameters are missing.
  * @throws Exception If an invalid git repository exists or cleanup fails.
  */
 def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, String repoSsh, String branch) {
     if (!projectDir || !repoSsh || !branch) {
-        error "Missing required parameters for cloneOrUpdateRepo()"
+        error 'Missing required parameters for cloneOrUpdateRepo()'
     }
-    
-    echo "Checking if the project directory exists..."
-    int projectExists = sh (script: "/usr/bin/find \"${workingDir}\" -type d -name ${projectType}", returnStatus: true)
+
+    echo 'Checking if the project directory exists...'
+    int projectExists = sh(script: "/usr/bin/find \"${workingDir}\" -type d -name ${projectType}", returnStatus: true)
     echo "Project directory: ${projectDir}"
     echo "Project exists: ${projectExists}"
 
     if (projectExists != 0) {
-        echo "Cloning repository..."
+        echo 'Cloning repository...'
         sh "git clone ${repoSsh} ${projectDir}"
     } else {
         def isGitRepo = fileExists("${projectDir}/.git")
         echo "isGitRepo: ${isGitRepo}"
         if (isGitRepo) {
-            echo "Project already exists. Fetching latest changes..."
+            echo 'Project already exists. Fetching latest changes...'
             dir(projectDir) {
-                echo "Current branch before checkout:"
-                sh "git branch --show-current"
+                echo 'Current branch before checkout:'
+                sh 'git branch --show-current'
 
                 // Remove lock file if it exists
-                sh "rm -f .git/index.lock"
-                sh "git fetch origin"
+                sh 'rm -f .git/index.lock'
+                sh 'git fetch origin'
 
                 // Check if the branch exists and check it out
                 checkoutBranch(projectDir, branch)
 
-                echo "Current branch after checkout:"
-                sh "git branch --show-current"
+                echo 'Current branch after checkout:'
+                sh 'git branch --show-current'
 
-                sh "git pull"
+                sh 'git pull'
             }
         } else {
-            echo "Invalid git repository. Cleaning up and cloning a fresh..."
+            echo 'Invalid git repository. Cleaning up and cloning a fresh...'
             try {
                 def output = sh(script: "rm -rf ${projectDir}/*", returnStdout: true)
                 echo "Command output: ${output}"
@@ -69,12 +69,11 @@ def getDefaultBranch() {
     // Use git remote show to get the default branch
     def defaultBranch = sh(script: "git remote show origin | grep 'HEAD branch' | awk '{print \$NF}'", returnStdout: true).trim()
     if (!defaultBranch) {
-        error "Failed to determine the default branch from the remote repository."
+        error 'Failed to determine the default branch from the remote repository.'
     }
     echo "Default branch is determined to be '${defaultBranch}'."
     return defaultBranch
 }
-
 
 /**
  * This function will notify bitbucket that the pipeline is in progress, as well as set up some environment variables.
@@ -85,7 +84,7 @@ def getDefaultBranch() {
  */
 def initializeEnvironment(String workspace, String commitHash, String prBranch) {
     echo "Sending 'In Progress' status to Bitbucket..."
-    sendBuildStatus(workspace, "INPROGRESS", commitHash)
+    sendBuildStatus(workspace, 'INPROGRESS', commitHash)
     env.TICKET_NUMBER = parseTicketNumber(prBranch)
     env.FOLDER_NAME = "${JOB_NAME}".split('/').first()
 }
@@ -114,7 +113,6 @@ def checkoutBranch(String projectDir, String targetBranch) {
     }
 }
 
-
 /**
  * This function encapsulates the git action of merging the default branch into the PR branch
  * if it is determined the branch is not up to date.
@@ -122,8 +120,8 @@ def checkoutBranch(String projectDir, String targetBranch) {
 def mergeBranchIfNeeded() {
     def destinationBranch = getDefaultBranch()
     try {
-        echo "Fetching latest changes from origin..."
-        sh "git fetch origin"
+        echo 'Fetching latest changes from origin...'
+        sh 'git fetch origin'
 
         // Check if the destination branch exists remotely
         def branchExists = sh(script: "git show-ref --verify --quiet refs/remotes/origin/${destinationBranch}", returnStatus: true) == 0
@@ -140,15 +138,15 @@ def mergeBranchIfNeeded() {
 
         echo "Branch is not up-to-date. Attempting to merge ${destinationBranch}..."
         if (tryMerge(destinationBranch)) {
-            echo "Merge completed successfully."
+            echo 'Merge completed successfully.'
         } else {
-            echo "Merge conflicts detected. Aborting the merge."
-            sh "git merge --abort || true" // Safely abort merge if one is in progress
-            error("Merge process failed.")
+            echo 'Merge conflicts detected. Aborting the merge.'
+            sh 'git merge --abort || true' // Safely abort merge if one is in progress
+            error('Merge process failed.')
         }
     } catch (Exception e) {
         echo "An error occurred during the merge process: ${e.getMessage()}"
-        error("Merge process failed.")
+        error('Merge process failed.')
     }
 }
 
@@ -159,21 +157,19 @@ def mergeBranchIfNeeded() {
  * @return true if the local branch is up-to-date with the remote branch, false otherwise.
  */
 def isBranchUpToDateWithRemote(String branch) {
-    
     return sh(
         script: "git fetch origin ${branch} && [ \$(git rev-parse HEAD) = \$(git rev-parse origin/${branch}) ]",
         returnStatus: true
     ) == 0
 }
 
-
 /**
- * This function encapsulates the git action of checking if the current branch is up to date with main 
+ * This function encapsulates the git action of checking if the current branch is up to date with main
  *
  * @return true if the local branch is up-to-date with the main branch, false otherwise.
  */
 def isBranchUpToDateWithMain(destinationBranch) {
-    return sh (script: "git merge-base --is-ancestor origin/${destinationBranch} @", returnStatus: true) == 0
+    return sh(script: "git merge-base --is-ancestor origin/${destinationBranch} @", returnStatus: true) == 0
 }
 
 /**
@@ -188,7 +184,7 @@ def tryMerge(String destinationBranch) {
 }
 
 /**
- * This function is used to retrieve the full commit hash, this is currently done by calling a python script 
+ * This function is used to retrieve the full commit hash, this is currently done by calling a python script
  * which retrieves it from bitbucket via web request.
  *
  * @param workspace The local workspace which contains our jenkins files and project files.
@@ -208,14 +204,14 @@ def getFullCommitHash(String workspace, String shortCommit) {
  *
  * @return string The short commit hash.
  */
-def getCurrentCommitHash(){
-    return sh (script: "git rev-parse HEAD", returnStdout: true).trim() 
+def getCurrentCommitHash() {
+    return sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
 }
 
 /**
- * This function is used to send the build status back to the bitbucket REST API, This is achieved by calling a 
+ * This function is used to send the build status back to the bitbucket REST API, This is achieved by calling a
  * helper python script to handle the web request.
- * 
+ *
  * @param workspace The path to the workspace where the Python script is located.
  * @param state The build status to send (e.g., INPROGRESS, SUCCESSFUL, FAILED).
  * @param commitHash The commit hash associated with the build.
@@ -226,7 +222,7 @@ def sendBuildStatus(workspace, state, commitHash, deployment = false, javascript
     try {
         def pythonCommand = "python '${workspace}/python/send_bitbucket_build_status.py' '${commitHash}' '${state}'"
         if (deployment) {
-            pythonCommand += " -d"
+            pythonCommand += ' -d'
         }
         if (javascript) {
             pythonCommand += " -js -key ${env.SONAR_PROJECT_KEY}"
@@ -244,13 +240,13 @@ def sendBuildStatus(workspace, state, commitHash, deployment = false, javascript
 /**
  * Extracts a ticket number from a branch name using a predefined pattern.
  * The pattern matches strings in the format "ABC-123" (letters followed by a hyphen and digits).
- * 
+ *
  * @param branchName The name of the branch from which to extract the ticket number.
  * @return The extracted ticket number if a match is found, or null if no match is found.
  */
 def parseTicketNumber(branchName) {
     def patternMatches = branchName =~ /[A-Za-z]+-[0-9]+/
-    
+
     if (patternMatches) {
         return patternMatches[0]
     }
@@ -260,19 +256,19 @@ def parseTicketNumber(branchName) {
  * Publishes test result HTML reports to a remote web server.
  * The function creates the necessary directories on the server, adjusts permissions,
  * and uploads the reports using SSH and SCP.
- * 
+ *
  * @param remoteProjectFolderName The name of the remote project folder on the web server.
  * @param ticketNumber The identifier for the ticket associated with the test results.
  * @param reportDir The local directory containing the HTML test result reports to be uploaded.
  * @param reportType The type of report being published (e.g. CodeCoverage).
- * @param buildNumber Optional. The build number associated with the test results. If provided, 
+ * @param buildNumber Optional. The build number associated with the test results. If provided,
  *                    the reports will be placed under a subdirectory for that build.
  */
 def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, reportDir, reportType, buildNumber = null) {
-    echo "Attempting to publish results to web server"
+    echo 'Attempting to publish results to web server'
     def destinationDir = buildNumber ? "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/Build-${buildNumber}/${reportType}-report" : "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/${reportType}-report"
 
-     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
     \"mkdir -p ${destinationDir} \
     && sudo chown vconadmin:vconadmin ${destinationDir} \
     && sudo chmod 755 /var/www/html/${remoteProjectFolderName} \
@@ -285,7 +281,7 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
  * Deletes the reports for a merged branch from the remote web server.
  * This function removes the directory associated with the branch's ticket number
  * to clean up after a successful merge.
- * 
+ *
  * @param remoteProjectFolderName The name of the remote project folder on the web server.
  * @param ticketNumber The identifier for the ticket associated with the branch whose reports need to be removed.
  */
@@ -298,12 +294,12 @@ def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber)
  * Cleans up directories associated with a pull request branch.
  * This function searches for directories matching the branch name, deletes them,
  * and also removes any associated temporary directories (`@tmp`) if they exist.
- * 
+ *
  * @param prBranch The name of the pull request branch to clean up.
  */
 def cleanUpPRBranch(String prBranch) {
     // Find the path of 'find' directory searching tool
-    def findPath = sh(script: "command -v find", returnStdout: true).trim()
+    def findPath = sh(script: 'command -v find', returnStdout: true).trim()
     if (!findPath) {
         echo "'find' directory searching tool is not found..."
         echo "Installing 'find' directory searching tool..."
@@ -317,7 +313,7 @@ def cleanUpPRBranch(String prBranch) {
         }
     }
 
-   // Find the branch path
+    // Find the branch path
     def branchPaths = sh(script: "${findPath} ../ -type d -name \"${prBranch}\"", returnStdout: true).trim()
     if (!branchPaths.isEmpty()) {
         // Split paths into an array
@@ -341,14 +337,14 @@ def cleanUpPRBranch(String prBranch) {
         }
     } else {
         echo "No branch path found for ${prBranch}. Nothing to delete."
-    } 
+    }
 }
 
 /**
  * Closes open log files in a specified directory by terminating associated processes.
  * This function identifies processes holding open files in the given directory,
  * extracts their PIDs, and forcefully terminates those processes if they still exist.
- * 
+ *
  * @param branchPath The path to the directory where log files are checked for open processes.
  */
 void closeLogfiles(String branchPath) {
@@ -358,11 +354,11 @@ void closeLogfiles(String branchPath) {
 
         if (!openFiles.isEmpty()) {
             echo "Open files found in the directory: ${branchPath}"
-            echo "List of opened files:"
+            echo 'List of opened files:'
             echo "${openFiles}"
 
             // Extract unique PIDs from the open files
-            def pids = openFiles.split('\n').findAll { 
+            def pids = openFiles.split('\n').findAll {
                 it.contains('pid:') && it.contains("${prBranch}") // Filtering lines related to the target branch
             }.collect { line ->
                 def match = line =~ /\b(\d+)\b/ // Regex to extract PIDs
@@ -373,10 +369,10 @@ void closeLogfiles(String branchPath) {
             echo "List of PIDs of open log files at the \"${prBranch}\": ${pids}"
 
             // Forcefully terminate the processes
-            pids.each { pid -> 
+            pids.each { pid ->
                 if (pid) {
                     // Check whether the target PID still exists or not
-                    echo "Checking whether the target PID still exists or not..."
+                    echo 'Checking whether the target PID still exists or not...'
                     def pidExists = sh(script: "ps -p ${pid} -o pid=", returnStatus: true) == 0
                     if (pidExists) {
                         // Terminate the process using pid
@@ -391,10 +387,10 @@ void closeLogfiles(String branchPath) {
         } else {
             echo "No open files found in the directory: ${branchPath}"
         }
-    } 
+    }
     catch (Exception e) {
         echo "Command failed with error: ${e.message}"
-        if (e.message.contains("script returned exit code 1")) {
+        if (e.message.contains('script returned exit code 1')) {
             // This part will be executed if there is no open file at the target PR directory
             echo "Exit code 1 detected. Likely 'No matching handles found'."
             echo "No open files found in the directory: ${branchPath} Proceeding."
@@ -403,6 +399,5 @@ void closeLogfiles(String branchPath) {
         }
     }
 }
-
 
 return this
