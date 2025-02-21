@@ -39,7 +39,7 @@ pipeline {
         CI_PIPELINE = 'false'
         PROJECT_TYPE = 'Unity_Project'
         PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
-        REPORT_DIR = "${env.WORKSPACE}/DeploymentJob"
+        REPORT_DIR = "${env.WORKSPACE}/DeploymentJob/${PR_BRANCH}"
         JOB_REPO = "${PR_REPO_HTML}"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
         DESTINATION_BRANCH = "${PR_DESTINATION_BRANCH}"
@@ -79,9 +79,7 @@ pipeline {
             steps {
                 script {
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
-                    script {
-                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-                    }
+                    env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
                     if (!fileExists("${PROJECT_DIR}")) {
                         echo 'First time running pipeline. Cloning main branch...'
@@ -111,18 +109,9 @@ pipeline {
                 echo 'Running Unity in batch mode to setup initial files...'
                 dir("${PROJECT_DIR}") {
                     script {
-                        def logFile = "${REPORT_DIR}/batchmode_results/batch_mode_execution.log"
-                        def flags = "-batchmode -nographics -projectPath \"${PROJECT_DIR}\" -executeMethod \"Packages.Rider.Editor.RiderScriptEditor.SyncSolution\" -logFile \"${logFile}\" -quit "
-
-                        echo "Flags set to: ${flags}"
-
-                        // Execute Unity in batch mode with memory settings
-                        def exitCode = sh(script: """\"${env.UNITY_EXECUTABLE}\" ${flags}""", returnStatus: true)
-
-                        // Handle exit code
-                        if (exitCode != 0) {
-                            sh "exit ${exitCode}"
-                        }
+                        String stageName = 'Rider'
+                        String errorMassage = 'Synchronizing Unity and Rider IDE solution files failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
                     }
                 }
             }
@@ -160,7 +149,9 @@ pipeline {
                 echo 'Running EditMode tests...'
                 dir("${PROJECT_DIR}") {
                     script {
-                        unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, editMode, false, true)
+                        String stageName = 'EditMode'
+                        String errorMassage = 'EditMode tests failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
                     }
                 }
             }
@@ -171,10 +162,10 @@ pipeline {
             steps {
                 echo 'Running PlayMode tests...'
                 dir("${PROJECT_DIR}") {
-                    retry(5) {
-                        script {
-                            unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, playMode, false, true)
-                        }
+                    script {
+                        String stageName = 'PlayMode'
+                        String errorMassage = 'PlayMode tests failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
                     }
                 }
             }
@@ -183,13 +174,13 @@ pipeline {
         stage('Build Project') {
             steps {
                 echo 'Building Unity project for WebGL...'
-                sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\"" //The following line assumed this folder exists in every project, adding check to ensure it does.
+                //The following line assumed this folder exists in every project, adding check to ensure it does.
+                sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\""
                 sh "mv Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
-
-                retry(5) {
-                    script {
-                        unityUtil.buildProject(REPORT_DIR, PROJECT_DIR, UNITY_EXECUTABLE)
-                    }
+                script {
+                    String stageName = 'Webgl'
+                    String errorMassage = 'WebGL Build failed'
+                    unityUtil.runUnityStage(stageName, errorMassage)
                 }
             }
         }
@@ -228,6 +219,7 @@ pipeline {
         always {
             script {
                 echo 'Returning to the main branch...'
+                currentBuild.description = "${PR_BRANCH}"
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }

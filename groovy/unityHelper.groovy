@@ -1,3 +1,7 @@
+import groovy.json.JsonSlurper
+import hudson.FilePath
+import hudson.AbortException
+
 /**
  * This function encapsulates the calling of our helper python script which will create and send
  * the results of the Unity tests back to the BitBucket PR for developers to read.
@@ -60,114 +64,274 @@ def getUnityExecutable(workspace, projectDir) {
 }
 
 /**
- * Runs a Unity project's tests for a specified test type with optional code coverage and test reporting.
- * This function executes Unity tests in batch mode and provides options for logging, code coverage,
- * and error handling based on the deployment type.
+ * Executes a Unity batch mode operation for the specified stage and handles errors.
  *
- * @param unityExecutable The path to the Unity executable to be used for running the tests.
- * @param reportDir The directory where test result logs and reports will be stored.
- * @param projectDir The directory of the Unity project to be tested.
- * @param testType The type of tests to run (e.g., "EditMode" or "PlayMode").
- * @param enableReporting A boolean flag indicating whether code coverage and test reporting should be enabled.
- * @param deploymentBuild A boolean flag indicating whether to fail the build pipeline on test failure.
- *                        If true, the build pipeline will abort on test failures; otherwise, it will proceed.
+ * @param stageName The name of the stage to execute (e.g., "EditMode", "PlayMode").
+ * @param errorMessage The error message to display if an exception occurs or the exit code is non-zero.
+ * @return void
  */
-def runUnityTests(unityExecutable, reportDir, projectDir, testType, enableReporting, deploymentBuild) {
-    // Define the log file path for the test results
-    def logFile = "${reportDir}/test_results/${testType}-tests.log"
-
-    // Function to get report settings based on whether reporting is enabled
-    def getReportSettings = { rDir, tType, eReporting ->
-        if (eReporting) {
-            // Return settings for test results, code optimization, and code coverage
-            return """ \
-            -testResults ${rDir}/test_results/${tType}-results.xml \
-            -debugCodeOptimization \
-            -enableCodeCoverage \
-            -coverageResultsPath ${rDir}/coverage_results \
-            -coverageOptions useProjectSettings"""
-        } else {
-            // Return settings for test results and code optimization only
-            return """ \
-            -testResults ${rDir}/test_results/${tType}-results.xml \
-            -debugCodeOptimization"""
-        }
+void runUnityStage(String stageName, String errorMessage) {
+    // Initialize exit code to -1 (indicating failure by default)
+    int exitCode = -1
+    try {
+        // Run Unity batch mode and capture the exit code
+        exitCode = runUnityBatchMode(UNITY_EXECUTABLE, PROJECT_DIR, REPORT_DIR, stageName)
+    } catch (Exception e) {
+        // Log exception details and terminate the pipeline with an error message
+        echo "Exception type: ${e.class.name}"
+        echo "Stack trace: ${e.getStackTrace().join('\n')}"
+        error "${errorMessage}: ${e.message}"
     }
-
-    // Function to construct flags for the Unity test execution command
-    def getFlags = { pDir, tType, lFile, rSettings ->
-        def flags = "-projectPath ${pDir} \
-            -batchmode \
-            -testPlatform ${tType} \
-            -runTests \
-            -logFile ${lFile}${rSettings}"
-
-        // Add specific flags based on the test type
-        if (tType == 'EditMode') {
-            flags += ' -nographics'
-        }
-        return flags
+    // Check the exit code and handle success/failure
+    if (exitCode != 0) {
+        error "${stageName} Unity batch mode failed with exit code: ${exitCode}"
+    } else {
+        echo "${stageName} completed successfully."
     }
-
-    // Function to handle the exit code from the Unity test execution
-    def handleExitCode = { eCode, dBuild ->
-        if (eCode != 0) {
-            if (dBuild) {
-                // If deployment build, fail the build with an error
-                error("Test failed with exit code ${eCode}. Check the log file for more details.")
-                sh "exit ${eCode}"
-            }
-            // Catch error and mark the build as failed
-            catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                error("Test failed with exit code ${eCode}. Check the log file for more details.")
-            }
-        }
-    }
-
-    // Get the report settings based on the parameters
-    def reportSettings = getReportSettings(reportDir, testType, enableReporting)
-    // Get the flags for the Unity command
-    def flags = getFlags(projectDir, testType, logFile, reportSettings)
-
-    def exitCode = ''
-    // Execute Unity tests based on the test type
-    if (testType == 'EditMode') {
-        exitCode = sh(script: """${unityExecutable} ${flags}""", returnStatus: true)
-    }
-    else if (testType == 'PlayMode') {
-        // Use xvfb-run for PlayMode tests to handle graphical requirements
-        unityExecutable = "/usr/bin/xvfb-run -a ${unityExecutable}"
-        exitCode = sh(script: """${unityExecutable} ${flags}""", returnStatus: true)
-    }
-
-    // Handle the exit code from the test execution
-    handleExitCode(exitCode, deploymentBuild)
 }
 
 /**
- * Builds a Unity project targeting the WebGL platform.
- * This function runs Unity in batch mode to build the specified project and logs the build process.
+ * Runs Unity in batch mode with the specified parameters and returns the exit code.
  *
- * @param reportDir The directory where the build logs and results will be stored.
- * @param projectDir The directory of the Unity project to be built.
- * @param unityExecutable The path to the Unity executable to use for building the project.
- * @throws Exception If the build process fails, the function exits with the corresponding error code.
+ * @param unityExecutable The path to the Unity executable.
+ * @param projectDirectory The directory containing the Unity project.
+ * @param reportDirectory The directory where test reports and logs will be stored.
+ * @param stageName The name of the stage to execute (e.g., "EditMode", "PlayMode").
+ * @return int The exit code of the Unity batch mode process.
  */
-def buildProject(reportDir, projectDir, unityExecutable) {
-    def logFile = "${reportDir}/build_project_results/build_project.log"
+int runUnityBatchMode(String unityExecutable, String projectDirectory, String reportDirectory, String stageName) {
+    String batchModeBaseCommand = '' // Base command for Unity batch mode in any stage
+    String logFilePath = '' // Path to the log file
+    String logFileUrl = '' // Jenkins URL to access the log file
+    String testRunArgs = '' // Arguments for running tests (Edit/PlayMode only)
+    String codeCoverageArgs = '' // Arguments for code coverage (EditMode, PlayMode, and Coverage Stage only)
+    String additionalArgs = '' // Additional arguments for specific stages(initial and WebGl Build Stage)
+    String finalCommand = '' // Final command to execute
+    String logMessage = '' // Log message to display including logFileUrl
 
-    def exitCode = sh(script:"""\"${unityExecutable}\" \
-        -quit \
-        -batchmode \
-        -nographics \
-        -projectPath \"${projectDir}\" \
-        -logFile \"${logFile}\" \
-        -buildTarget WebGL \
-        -executeMethod Builder.BuildWebGL""", returnStatus: true)
+    /**
+     * Sets the log file path and URL based on the stage and CI pipeline configuration.
+     *
+     * @param prBranch The pull request branch name.
+     * @param reportDir The directory where reports are stored.
+     * @param stage The stage name (e.g., "EditMode", "PlayMode").
+     */
+    Closure setLogFilePathAndUrl = { String prBranch, String reportDir, String stage ->
+        String jobName = CI_PIPELINE == 'true' ? 'PRJob' : 'DeploymentJob'
 
-    if (exitCode != 0) {
-        sh "exit ${exitCode}"
+        Map logConfig = [
+            EditMode: [
+                path: "${reportDir}/test_results/${stage}-tests.log",
+                url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/test_results/${stage}-tests.log"
+            ],
+            PlayMode: [
+                path: "${reportDir}/test_results/${stage}-tests.log",
+                url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/test_results/${stage}-tests.log"
+            ],
+            Coverage: [
+                path: "${reportDir}/coverage_results/coverage_report.log",
+                url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/coverage_results/coverage_report.log"
+            ],
+            Webgl: [
+                path: "${reportDir}/build_project_results/build_project.log",
+                url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/build_project_results/build_project.log"
+           ],
+            Rider: [
+                path: "${reportDir}/batchmode_results/batch_mode_execution.log",
+                url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/batchmode_results/batch_mode_execution.log"
+            ]
+        ]
+
+        if (!logConfig.containsKey(stage)) {
+            throw new IllegalArgumentException("Invalid stageName: ${stage}. Valid options are 'EditMode', 'PlayMode', 'Coverage', 'Webgl', or 'Rider'.")
+        }
+            logFilePath = logConfig[stage].path
+            logFileUrl = logConfig[stage].url
     }
+
+    /**
+     * Generates arguments for running Unity tests (EditMode and PlayMode only).
+     *
+     * @param reportDir The directory where test reports are stored.
+     * @param stage The stage name (e.g., "EditMode", "PlayMode").
+     * @return String The arguments for running Unity tests.
+     */
+    Closure<String> getTestRunArgs = { String reportDir, String stage ->
+        return "-testPlatform ${stage} \
+        -runTests \
+        -testResults ${reportDir}/test_results/${stage}-results.xml"
+    }
+
+    /**
+     * Generates additional arguments for specific stages ("Webgl", "Rider" only).
+     *
+     * @param stage The stage name (e.g., "Webgl", "Rider").
+     * @return String The additional arguments for the specified stage.
+     */
+    Closure<String> getAdditionalArgs = { String stage ->
+        Map argsMap = [
+            Webgl: '-buildTarget WebGL -executeMethod Builder.BuildWebGL',
+            Rider: '-executeMethod Packages.Rider.Editor.RiderScriptEditor.SyncSolution'
+        ]
+        return argsMap[stage] ?: ''
+    }
+
+    // Set log file path and URL for any stages
+    setLogFilePathAndUrl(PR_BRANCH, reportDirectory, stageName)
+
+    // Build the base command for Unity batch mode
+    batchModeBaseCommand = "${unityExecutable} \
+        -projectPath ${projectDirectory} \
+        -batchmode \
+        -logFile ${logFilePath}"
+
+    // Generate test run arguments
+    testRunArgs = ['EditMode', 'PlayMode'].contains(stageName) ? getTestRunArgs(reportDirectory, stageName) : ''
+
+    // Generate code coverage arguments
+    codeCoverageArgs = ['EditMode', 'PlayMode', 'Coverage'].contains(stageName) ? getCodeCoverageArguments(projectDirectory, reportDirectory, stageName) : ''
+
+    // Generate additional arguments for WebGL build and Synchronizing Unity and Rider
+    additionalArgs = ['Webgl', 'Rider'].contains(stageName) ? getAdditionalArgs(stageName) : ''
+
+    // Build the final command based on the stage
+    finalCommand = batchModeBaseCommand
+    if (['EditMode', 'PlayMode'].contains(stageName)) {
+        finalCommand += " ${testRunArgs} ${codeCoverageArgs}"
+    } else if (stageName == 'Coverage') {
+        finalCommand += " ${codeCoverageArgs}"
+    } else if (['Webgl', 'Rider'].contains(stageName)) {
+        finalCommand += " ${additionalArgs}"
+    }
+
+    // Add graphics and quit options
+    finalCommand = (stageName != 'PlayMode')
+        ? (finalCommand + ' -nographics')
+        : ('/usr/bin/xvfb-run -a ' + finalCommand)
+    // Caution: if -quit is used for EditMode and PlayMode, it would not generate OpenCov files
+    finalCommand += (stageName != 'PlayMode' && stageName != 'EditMode') ? ' -quit' : ''
+
+    // Execute the final command and capture the exit code
+    int exitCode = sh(script: "${finalCommand}", returnStatus: true)
+
+    logMessage = "${stageName} Unity Batch-Mode Log file link: ${logFileUrl}"
+
+    echo logMessage
+
+    return exitCode
+}
+
+/**
+ * Generates code coverage arguments for Unity batch mode.
+ *
+ * @param projectDirectory The directory containing the Unity project.
+ * @param reportDirectory The directory where test reports are stored.
+ * @param stageName The name of the stage (e.g., "EditMode", "PlayMode").
+ * @return String The arguments for enabling code coverage.
+ */
+String getCodeCoverageArguments(String projectDirectory, String reportDirectory, String stageName) {
+    String coverageResultPath = "${reportDirectory}/coverage_results"
+    String codeCoverageBaseArgs = "-enableCodeCoverage \
+    -debugCodeOptimization \
+    -coverageResultsPath ${coverageResultPath}"
+    String coverageOptionsKeyAndValue = ''
+    String assemblyFiltersValue = ''
+
+    /**
+     * Retrieves the name of the first .asmdef file in the Scripts directory.
+     * For Code Coverage analysis, it is essential to reference the correct assembly that contains the scripts being tested.
+     * @param projectDir The directory containing the Unity project.
+     * @return String The name of the first .asmdef file without the extension.
+     */
+    Closure<String> fetAsmdefFileName = { String projectDir ->
+        // Define the target directory: ${projectDir}/Assets/Scripts
+        String targetDir = "${projectDir}/Assets/Scripts"
+        // Create a FilePath object for the target directory
+        FilePath scriptsDir = new FilePath(new File(targetDir))
+        // List only .asmdef files in the target directory (non-recursive)
+        FilePath[] files = scriptsDir.list('*.asmdef')
+        // Check if any .asmdef files were found
+        if (files.length > 0) {
+            // Return the name of the first .asmdef file without the extension
+            return files[0].getName().replace('.asmdef', '')
+        }
+        // Return an empty string if no .asmdef files are found
+        return ''
+    }
+
+    assemblyFiltersValue = fetAsmdefFileName(projectDirectory)
+    coverageOptionsKeyAndValue = fetCoverageOptionsKeyAndValue(assemblyFiltersValue, projectDirectory, stageName)
+
+    return "${codeCoverageBaseArgs} ${coverageOptionsKeyAndValue}"
+}
+
+/**
+ * Generates key-value pairs for code coverage options based on the stage and project settings.
+ *
+ * @param assemblyName The name of the assembly to filter.
+ * @param projectDir The directory containing the Unity project.
+ * @param stageName The name of the stage (e.g., "EditMode", "PlayMode", "Coverage").
+ * @return String The formatted code coverage options.
+ */
+String fetCoverageOptionsKeyAndValue(String assemblyName, String projectDir, String stageName) {
+    // Common options
+    String assemblyFiltersOption = "assemblyFilters:${assemblyName}"
+    String sourcePathsOption = "sourcePaths:${projectDir}"
+    String pathFiltersOption = "pathFilters:+Assets/Scripts/**"
+
+    if (['EditMode', 'PlayMode'].contains(stageName)) {
+        // Load PathsToExclude from Unity's Code Coverage settings JSON file
+        String pathsToExclude = loadPathsToExclude(projectDir)
+        return buildCoverageOptions(assemblyFiltersOption, sourcePathsOption, pathFiltersOption, pathsToExclude)
+    } else if (stageName == 'Coverage') {
+        // For Coverage stage, generate HTML and badge reports
+        return "-coverageOptions \"${assemblyFiltersOption};generateHtmlReport;generateBadgeReport\""
+    }
+    return ''
+}
+
+/**
+ * Loads the PathsToExclude value from Unity's Code Coverage settings JSON file.
+ *
+ * @param projectDir The directory containing the Unity project.
+ * @return String The formatted PathsToExclude value, or an empty string if not found.
+ */
+String loadPathsToExclude(String projectDir) {
+    String codeCoverageSettingsFilePath = "${projectDir}/ProjectSettings/Packages/com.unity.testtools.codecoverage/Settings.json"
+    try {
+        JsonSlurper jsonSlurper = new JsonSlurper()
+        String codeCoverageSettingsContent = new File(codeCoverageSettingsFilePath).text
+        echo "codeCoverageSettingsContent: ${codeCoverageSettingsContent}"
+
+        Map codeCoverageSettingsJsonObject = (Map) jsonSlurper.parseText(codeCoverageSettingsContent)
+        List<Map> codeCoverageSettingItem = (List<Map>) (codeCoverageSettingsJsonObject.m_Dictionary?.m_DictionaryValues ?: [])
+        Map pathsToExcludeItem = codeCoverageSettingItem.find { it.key == 'PathsToExclude' }
+
+        if (pathsToExcludeItem != null) {
+            Map pathsToExcludeValueObject = jsonSlurper.parseText(pathsToExcludeItem.value)
+            String pathsToExcludeRawValue = pathsToExcludeValueObject.m_Value?.trim() ?: ''
+            return pathsToExcludeRawValue.replace('{ProjectPath}/', '-')
+        }
+    } catch (Exception e) {
+        error "Error parsing JSON file: ${e.message}"
+    }
+    return ''
+}
+
+/**
+ * Builds the final coverage options string based on the provided parameters.
+ *
+ * @param assemblyFiltersOption The assembly filters option.
+ * @param sourcePathsOption The source paths option.
+ * @param pathFiltersOption The path filters option.
+ * @param pathsToExclude The paths to exclude option.
+ * @return String The formatted coverage options string.
+ */
+String buildCoverageOptions(String assemblyFiltersOption, String sourcePathsOption, String pathFiltersOption, String pathsToExclude) {
+    if (pathsToExclude) {
+        return "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption},${pathsToExclude}\""
+    }
+    return "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption}\""
 }
 
 return this

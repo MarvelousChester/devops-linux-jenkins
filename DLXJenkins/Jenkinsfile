@@ -57,13 +57,24 @@ pipeline {
         // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
-                dir("${PROJECT_DIR}") {
-                    //send 'In Progress' status to Bitbucket
+                dir ("${PROJECT_DIR}") {
+                //send 'In Progress' status to Bitbucket
                     script {
                         // print jenkins env configurations
                         sh 'env'
-                        generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
-                        unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+                        try {
+                            generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                            unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+                        } catch (Exception e) {
+                            error "Failed to load Groovy scripts: ${e.message}"
+                        }
+
+                        
+                        if(generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals("Y")){
+                            echo "Local branch commit is up to date with remote branch, no changes. Aborting pipeline."
+                            currentBuild.result = 'ABORTED'
+                            error("Branch is up to date, no changes.")                     
+                        }
 
                         if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
                             echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
@@ -91,20 +102,15 @@ pipeline {
                 echo 'Running Unity in batch mode to setup initial files...'
                 dir("${PROJECT_DIR}") {
                     script {
-                        def logFile = "${REPORT_DIR}/batchmode_results/batch_mode_execution.log"
+                        env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
+                    }
 
-                        def flags = "-batchmode -nographics -projectPath \"${PROJECT_DIR}\" -executeMethod \"Packages.Rider.Editor.RiderScriptEditor.SyncSolution\" -logFile \"${logFile}\" -quit "
-
-                        echo "Flags set to: ${flags}"
-
-                        // Execute Unity in batch mode with memory settings
-                        def exitCode = sh(script: """\"${env.UNITY_EXECUTABLE}\" ${flags}""", returnStatus: true)
-
-                        // Handle exit code
-                        if (exitCode != 0) {
-                            echo "Unity batch mode execution failed with exit code: ${exitCode}. Please check the log at ${logFile} for details."
-                            sh "exit ${exitCode}"
-                        }
+                    // Initial running the project on Unity Editor    
+                    echo "Running Unity in batch mode to setup initial files..."
+                    script {
+                        String stageName = "Rider"
+                        String errorMassage = "Synchronizing Unity and Rider IDE solution files failed"
+                        unityUtil.runUnityStage(stageName, errorMassage)
                     }
                 }
             }
@@ -154,7 +160,9 @@ pipeline {
                 echo 'Running EditMode tests...'
                 dir("${PROJECT_DIR}") {
                     script {
-                        unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, editMode, true, false)
+                        String stageName = "EditMode"
+                        String errorMassage = "EditMode tests failed"
+                        unityUtil.runUnityStage(stageName, errorMassage)
                     }
                 }
             }
@@ -163,54 +171,50 @@ pipeline {
         // PlayMode tests need to be run once in the editor to generate the overall coverage report.
         stage('PlayMode Tests in Editor') {
             steps {
-                echo 'Running PlayMode tests in Editor environment...'
-                dir("${PROJECT_DIR}") {
-                    retry(5) {
-                        script {
-                            unityUtil.runUnityTests(UNITY_EXECUTABLE, REPORT_DIR, PROJECT_DIR, playMode, true, false)
-                        }
+                echo "Running PlayMode tests in Editor environment..."
+                dir ("${PROJECT_DIR}") {
+                    script {
+                        String stageName = "PlayMode"
+                        String errorMassage = "PlayMode tests failed"
+                        unityUtil.runUnityStage(stageName, errorMassage) 
                     }
                 }
             }
         }
         // Merges the two coverage reports from the EditMode and PlayMode (editor) reports into one.
         // Then sends a coverage report to Bitbucket.
-        stage('Send Reports') {
+        stage('Code Coverage\nSend Reports') {
             steps {
-                echo 'Generating code coverage report...'
                 dir("${PROJECT_DIR}") {
-                    sh """\"${UNITY_EXECUTABLE}\" \
-                    -projectPath . \
-                    -batchmode \
-                    -debugCodeOptimization \
-                    -nographics \
-                    -logFile \"${REPORT_DIR}/coverage_results/coverage_report.log\" \
-                    -enableCodeCoverage \
-                    -coverageResultsPath \"${REPORT_DIR}/coverage_results\" \
-                    -coverageOptions \"useProjectSettings\" \
-                    -quit"""
-
+                    echo "Generating code coverage report..."
                     script {
-                        generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", 'CodeCoverage')
+                        String stageName = "Coverage"
+                        String errorMassage = "Code Coverage generation failed"
+                        unityUtil.runUnityStage(stageName, errorMassage) 
+                    }
+                    //publish results to web server
+                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", 'CodeCoverage')
+
+                    echo "Sending test report to Bitbucket."
+                    script {
+                        unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
                     }
                 }
-                echo 'Sending test report.'
-                script {
-                    unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
-                }
+
             }
         }
         //Builds the project and saves it.
         stage('Build Project') {
             steps {
-                echo 'Building Unity project...'
-                sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\"" //The following line assumed this folder exists in every project, adding check to ensure it does.
-                sh "cp Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
+                script {
+                    echo "Building Unity project..."
+                    //The following line assumed this folder exists in every project, adding check to ensure it does.
+                    sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\"" 
+                    sh "cp Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
 
-                retry(5) {
-                    script {
-                        unityUtil.buildProject(REPORT_DIR, PROJECT_DIR, UNITY_EXECUTABLE)
-                    }
+                    String stageName = "Webgl"
+                    String errorMassage = "WebGL Build failed"
+                    unityUtil.runUnityStage(stageName, errorMassage) 
                 }
             }
         }
@@ -222,6 +226,7 @@ pipeline {
             script {
                 echo 'Returning to the main branch...'
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
+                currentBuild.description = "${PR_BRANCH}"
             }
         }
         success {
