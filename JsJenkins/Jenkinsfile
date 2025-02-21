@@ -131,6 +131,96 @@ pipeline {
                     // Change back to default directory
                     sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
+
+                script {
+                    echo "Publish test results html to dlx-webhost server..."
+                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}/coverage/${params.SERVER_SOURCE_FOLDER}/lcov-report", "server")
+                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}/coverage/${params.CLIENT_SOURCE_FOLDER}/lcov-report", "client")
+
+                    echo "Retrieve file paths of test summary JSON files"
+                    final String COVERAGE_SUMMARY_FILE_NAME = "coverage-summary.json"
+                    final String TEST_SUMMARY_FILE_NAME = "test-results.json"
+                    
+                    // Processing the sending Bitbucket Coverage report
+                    // Check whether project has a server-side codes or not
+                    if (params.SERVER_SOURCE_FOLDER?.trim()) {
+                        // Retrive paths of server-side test summary files
+                        Map serverTestSummaryDirs = jsUtil.retrieveReportSummaryDirs(
+                            "${env.PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER?.trim() ?: ''}",
+                            COVERAGE_SUMMARY_FILE_NAME,
+                            TEST_SUMMARY_FILE_NAME
+                        )
+
+                        // Check the return value
+                        if (!serverTestSummaryDirs.isEmpty()) {
+                            echo "Server-side summary files are founded."
+                            echo "Coverage Summary Path: ${serverTestSummaryDirs['coverageSummaryDir']}"
+                            echo "Test Summary Path: ${serverTestSummaryDirs['testSummaryDir']}"
+
+                            echo "Send the server-side coverage report to Bitbucket"
+                            String cmdArgs = " ${env.COMMIT_HASH}" +
+                                             " ${serverTestSummaryDirs['coverageSummaryDir']}" +
+                                             " ${serverTestSummaryDirs['testSummaryDir']}" +
+                                             " --server"
+
+                            // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
+                            if ((params.DEBUG_MODE ?: "").toUpperCase() == "Y") {
+                                cmdArgs += " --debug"
+                                echo "cmdArgs: ${cmdArgs}"
+                            }
+
+                            sh " python python/create_bitbucket_coverage_report.py ${cmdArgs}"
+                        }
+                        else {
+                            echo "Server-side summary files are not founded."
+                            echo "Skip report sending process..."
+                        }
+                    }
+                    else {
+                        echo "params.SERVER_SOURCE_FOLDER is not founded..."
+                        echo "Skip report sending process..."
+                    }
+
+
+                    // Check whether project has a client-side codes or not
+                    if (params.CLIENT_SOURCE_FOLDER?.trim()) {
+                        // Retrive paths of server-side test summary files
+                        Map clientTestSummaryDirs = jsUtil.retrieveReportSummaryDirs(
+                            "${env.PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER?.trim() ?: ''}",
+                            COVERAGE_SUMMARY_FILE_NAME,
+                            TEST_SUMMARY_FILE_NAME
+                        )
+
+                        // Check the return value
+                        if (!clientTestSummaryDirs.isEmpty()) {
+                            echo "Client-side summary files are founded."
+                            echo "Coverage Summary Path: ${clientTestSummaryDirs['coverageSummaryDir']}"
+                            echo "Test Summary Path: ${clientTestSummaryDirs['testSummaryDir']}"
+
+                            String cmdArgs = 
+                                " ${env.COMMIT_HASH}" +
+                                " ${clientTestSummaryDirs['coverageSummaryDir']}" +
+                                " ${clientTestSummaryDirs['testSummaryDir']}" +
+                                " --client"
+                            
+                            // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
+                            if ((params.DEBUG_MODE ?: "").toUpperCase() == "Y") {
+                                cmdArgs += " --debug"
+                                echo "cmdArgs: ${cmdArgs}"
+                            }
+
+                            sh " python python/create_bitbucket_coverage_report.py ${cmdArgs}"
+                        }
+                        else {
+                            echo "Client-side summary files are not founded."
+                            echo "Skip report sending process..."
+                        }
+                    }
+                    else {
+                        echo "params.CLIENT_SOURCE_FOLDER is not founded..."
+                        echo "Skip report sending process..."
+                    }
+                }
             }
         }
         // Runs static code analysis using SonarQube installed in Jenkins virtual machine.

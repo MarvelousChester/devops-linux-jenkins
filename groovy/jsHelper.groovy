@@ -405,4 +405,44 @@ boolean versionCompare(String azContainerVersion, String projectVersion) {
     }
     return false  // Versions are identical
 }
+
+/**
+ * **Overview**
+ * This function searches for the file directories of `coverage-summary.json` and `test-results.json`.
+ *
+ * @param projectDir              Base directory of the project (server or client).
+ * @param coverageSummaryFileName Expected to be `"coverage-summary.json"`.
+ * @param testSummaryFileName     Expected to be `"test-results.json"`.
+ * 
+ * @return Map
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong> Failrue </strong> : Returns an empty Map if one or both files are missing.
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong> Success </strong> : Returns a Map containing the absolute paths of both the coverage and test result files.
+ *
+ **/
+ Map retrieveReportSummaryDirs(String projectDir, String coverageSummaryFileName, String testSummaryFileName) {
+    println "Trying to find paths of ${coverageSummaryFileName} and ${testSummaryFileName} in the ${projectDir} base directory..."
+
+    // find the path of "coverage-summary.json"
+    String coverageSummaryDir = sh(script: "find '${projectDir}' -type f -name '${coverageSummaryFileName}'", returnStdout: true).trim()
+    if (!coverageSummaryDir) {
+        println "Failed to find coverage summary file: '${coverageSummaryFileName}' in '${projectDir}'"
+    }
+
+    // find the path of "test-results.json"
+    String testSummaryDir = sh(script: "find '${projectDir}' -type f -name '${testSummaryFileName}'", returnStdout: true).trim()
+    if (!testSummaryDir) {
+        println "Failed to find test summary file: '${testSummaryFileName}' in '${projectDir}'"
+    }
+
+    if (!coverageSummaryDir || !testSummaryDir) {
+        return [:]  // Return empty Map
+    }
+
+    // return test summary file paths as a Map container
+    return [
+        coverageSummaryDir: coverageSummaryDir,
+        testSummaryDir: testSummaryDir
+    ]
+}
+
 return this
