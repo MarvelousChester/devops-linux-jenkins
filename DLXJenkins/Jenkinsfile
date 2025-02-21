@@ -192,11 +192,12 @@ pipeline {
                         String errorMassage = "Code Coverage generation failed"
                         unityUtil.runUnityStage(stageName, errorMassage) 
                     }
-                    //publish results to web server
-                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", 'CodeCoverage')
+
 
                     echo "Sending test report to Bitbucket."
                     script {
+                        //publish results to web server
+                        generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${REPORT_DIR}/coverage_results/Report", 'CodeCoverage')
                         unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
                     }
                 }
