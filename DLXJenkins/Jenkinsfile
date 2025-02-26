@@ -1,5 +1,3 @@
-def editMode = 'EditMode'
-def playMode = 'PlayMode'
 def pass = 'Pass'
 def fail = 'Fail'
 def generalUtil
