@@ -74,15 +74,9 @@ pipeline {
                             error("Branch is up to date, no changes.")                     
                         }
 
-                        if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
-                            echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
-                            currentBuild.result = 'ABORTED'
-                            error('Branch is up to date, no changes.')
-                        }
+                        COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
-                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-
-                        generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
+                        generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
 
                         generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
 
@@ -230,17 +224,17 @@ pipeline {
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', COMMIT_HASH)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH)
             }
         }
     }

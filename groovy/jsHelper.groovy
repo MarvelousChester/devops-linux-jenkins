@@ -64,7 +64,7 @@ void installNpmInTestingDirs(String testingDirs) {
             echo reportFile.text
 
             // Call the Python script to process the audit report
-            String pythonCommand = "python '${WORKSPACE}/python/npm_audit.py' '${env.COMMIT_HASH}' '${dirPath}/audit-report.json'"
+            String pythonCommand = "python '${WORKSPACE}/python/npm_audit.py' '${COMMIT_HASH}' '${dirPath}/audit-report.json'"
             echo "Executing Python script for audit analysis: ${pythonCommand}"
             exitCode = sh(script: pythonCommand, returnStatus: true)
 

@@ -216,19 +216,20 @@ def getCurrentCommitHash() {
  * @param state The build status to send (e.g., INPROGRESS, SUCCESSFUL, FAILED).
  * @param commitHash The commit hash associated with the build.
  * @param deployment (Optional) A flag indicating whether the build is a deployment build (default: false).
- * @param javascript (Optional) A flag indicating whether the build involves JavaScript analysis, requiring additional keys (default: false).
  */
-def sendBuildStatus(workspace, state, commitHash, deployment = false, javascript = false) {
+void sendBuildStatus(String workspace, String state, String commitHash, Boolean deployment = false) {
     try {
-        def pythonCommand = "python '${workspace}/python/send_bitbucket_build_status.py' '${commitHash}' '${state}'"
+        // Construct the Python command as a string
+        String pythonCommand = "python '${workspace}/python/send_bitbucket_build_status.py' '${commitHash}' '${state}'"
+
+        // Append deployment flag if deployment is true
         if (deployment) {
             pythonCommand += ' -d'
         }
-        if (javascript) {
-            pythonCommand += " -js -key ${env.SONAR_PROJECT_KEY}"
-        }
         echo "Executing build status update: ${pythonCommand}"
+
         def exitCode = sh(script: pythonCommand, returnStatus: true)
+        
         if (exitCode != 0) {
             echo "Build status update script failed with exit code: ${exitCode}."
         }

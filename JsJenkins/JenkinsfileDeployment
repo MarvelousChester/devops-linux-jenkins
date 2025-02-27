@@ -87,7 +87,7 @@ pipeline {
                 script {
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
                     script {
-                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+                        COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
                     }
                     if (!fileExists("${PROJECT_DIR}")) {
                         echo 'First time running pipeline. Cloning main branch...'
@@ -355,17 +355,17 @@ pipeline {
         }
         success {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH, true)
             }
         }
         failure {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', COMMIT_HASH, true)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH, true, true)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH, true)
             }
         }
     }

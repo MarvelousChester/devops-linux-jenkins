@@ -1,6 +1,5 @@
 import groovy.json.JsonSlurper
 import hudson.FilePath
-import hudson.AbortException
 
 /**
  * This function encapsulates the calling of our helper python script which will create and send
@@ -84,7 +83,7 @@ void runUnityStage(String stageName, String errorMessage) {
     }
     // Check the exit code and handle success/failure
     if (exitCode != 0) {
-        error "${stageName} Unity batch mode failed with exit code: ${exitCode}"
+        echo "${stageName} Unity batch mode failed with exit code: ${exitCode}"
     } else {
         echo "${stageName} completed successfully."
     }

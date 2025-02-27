@@ -9,38 +9,25 @@ parser = argparse.ArgumentParser(description="Arguments for sending Bitbucket bu
 parser.add_argument("pr-commit", help="The full SHA hash of the commit where the build status will be sent.")
 parser.add_argument("pr-status", choices=['SUCCESSFUL', 'FAILED', 'STOPPED', 'INPROGRESS'])
 parser.add_argument("-d", "--deployment", action='store_true', help="Flag to use if we are updating a deployment build status.")
-parser.add_argument("-js", "--javascript",action='store_true', help="An optional argument to set the different build_url.")
 parser.add_argument("-desc", "--description", help="An optional argument for adding additional information to the build description.")
-parser.add_argument("-key", "--projeckey", help="An argument for sonarqube project key.")
+
 args = vars(parser.parse_args())
 
 # Environment variables:
 access_token = os.getenv('BITBUCKET_ACCESS_TOKEN')
 pr_repo = os.getenv('JOB_REPO')
 build_id = os.getenv('BUILD_ID')
-ticket = os.getenv('TICKET_NUMBER')
-build_number = os.getenv('BUILD_NUMBER')
-folder_path = os.getenv('JOB_NAME')
+build_url = os.getenv('BUILD_URL')
 
-if folder_path:
-    folder_path_parts = folder_path.split('/')
-    job_name = folder_path_parts[-1]
-    folder_name = '/'.join(folder_path_parts[:-1]) if len(folder_path_parts) > 1 else ''
-
-
-# Global variables:
+# Bitbucket API endpoint for sending build status
 url = f'{pr_repo}/commit/{args["pr-commit"]}/statuses/build'
-description = f"{args['pr-status']}: {args['description']}" if (args['description'] != None) else args['pr-status']
-sonar_project_key = args['projeckey'] if (args['projeckey'] != None) else None
 
-# No need to change argument parsing since `action='store_true'` handles boolean values
-if args['pr-status'] == "INPROGRESS":
-    build_url = f"https://jenkins.vconestoga.com/blue/organizations/jenkins/{folder_name}%2F{job_name}/detail/{job_name}/{build_number}/pipeline/"
-else:
-    if not args['javascript']:
-        build_url = f"https://webdlx.vconestoga.com/{folder_path}/Reports/{ticket}/logs.html"
-    else:
-        build_url = f"https://jenkins.vconestoga.com/sonarqube/dashboard?id={sonar_project_key}"
+# Modify description based on deployment flag
+prefix = "Deployment-" if args['deployment'] else "PR-"
+description = f"{prefix}{args['pr-status']}: {args['description']}" if args['description'] else f"{prefix}{args['pr-status']}"
+
+# Add a endpoint for build process overview page
+build_url += "pipeline-graph/"
 
 headers = {
     "Accept": "application/json",

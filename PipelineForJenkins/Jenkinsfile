@@ -65,9 +65,9 @@ pipeline {
                             error('Branch is up to date, no changes.')
                         }
 
-                        env.COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+                        COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
-                        generalUtil.initializeEnvironment(env.WORKSPACE, env.COMMIT_HASH, PR_BRANCH)
+                        generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
 
                         echo 'Cloning or updating repository...'
                         generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, params.PR_BRANCH)
@@ -181,18 +181,18 @@ pipeline {
         success {
             script {
                 echo 'Groovydoc generation completed successfully.'
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH)
             }
         }
         failure {
             script {
                 echo 'Groovydoc generation failed.'
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'FAILED', COMMIT_HASH)
             }
         }
         aborted {
             script {
-                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', env.COMMIT_HASH)
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH)
             }
         }
     }
