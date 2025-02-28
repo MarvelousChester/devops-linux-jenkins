@@ -266,6 +266,7 @@ pipeline {
         always {
             script {
                 echo 'Returning to the main branch...'
+                currentBuild.description = "${PR_BRANCH}"
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }

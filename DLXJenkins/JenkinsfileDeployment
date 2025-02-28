@@ -99,7 +99,7 @@ pipeline {
 
                 script {
                     echo "Sending \'In Progress\' status to Bitbucket..."
-                    generalUtil.sendBuildStatus(env.WORKSPACE, 'INPROGRESS', COMMIT_HASH)
+                    generalUtil.sendBuildStatus(env.WORKSPACE, 'INPROGRESS', COMMIT_HASH, true)
 
                     echo 'Identifying Unity version...'
                     env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)

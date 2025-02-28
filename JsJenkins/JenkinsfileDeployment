@@ -107,7 +107,7 @@ pipeline {
 
                 script {
                     echo "Sending \'In Progress\' status to Bitbucket..."
-                    generalUtil.sendBuildStatus(env.WORKSPACE, 'INPROGRESS', COMMIT_HASH)
+                    generalUtil.sendBuildStatus(env.WORKSPACE, 'INPROGRESS', COMMIT_HASH, true)
                     env.TEST_DIRECTORIES = jsUtil.findTestingDirs(PROJECT_DIR)
                     echo "Testing directories: ${env.TEST_DIRECTORIES}"
                 }
@@ -350,6 +350,7 @@ pipeline {
         always {
             script {
                 echo 'Returning to the main branch...'
+                currentBuild.description = "${PR_BRANCH}"
                 generalUtil.checkoutBranch(PROJECT_DIR, DESTINATION_BRANCH)
             }
         }
@@ -366,6 +367,11 @@ pipeline {
         aborted {
             script {
                 generalUtil.sendBuildStatus(env.WORKSPACE, 'STOPPED', COMMIT_HASH, true)
+            }
+        }
+        unstable {
+            script {
+                generalUtil.sendBuildStatus(env.WORKSPACE, 'SUCCESSFUL', COMMIT_HASH, true)
             }
         }
     }

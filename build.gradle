@@ -4,6 +4,9 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven {
+        url "https://repo.jenkins-ci.org/releases"
+    }
 }
 
 dependencies {
@@ -12,6 +15,7 @@ dependencies {
     implementation 'org.apache.groovy:groovy'
     implementation 'org.apache.groovy:groovy-json' 
 
+    implementation 'org.jenkins-ci.main:jenkins-core:2.498'
     // Use the Spock BOM for Groovy 4 compatibility
     testImplementation platform("org.spockframework:spock-bom:2.3-groovy-4.0") // Spock BOM for Groovy 4
     testImplementation "org.spockframework:spock-core" // Core Spock framework
