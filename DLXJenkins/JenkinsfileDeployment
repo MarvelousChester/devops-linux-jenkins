@@ -62,11 +62,16 @@ pipeline {
                     generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                     unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
 
+                    // Getting the full commit hash from git in order to send the build status to Bitbucket.
+                    COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+
+                    // Clean up Jenkins PR directory
                     generalUtil.cleanUpPRBranch(PR_BRANCH)
 
+                    // Clean up dlx-webhost directory
                     env.FOLDER_NAME = "${JOB_NAME}".split('/').first()
                     def ticketNumber = generalUtil.parseTicketNumber(PR_BRANCH)
-                    generalUtil.cleanMergedBranchReportsFromWebServer(FOLDER_NAME, ticketNumber)
+                    generalUtil.cleanMergedBranchFromWebServer(FOLDER_NAME, ticketNumber)
                 }
             }
         }
@@ -78,9 +83,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Getting the full commit hash from git in order to send the build status to Bitbucket.
-                    COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-
                     if (!fileExists("${PROJECT_DIR}")) {
                         echo 'First time running pipeline. Cloning main branch...'
                         sh "git clone ${REPO_SSH} \"${PROJECT_DIR}\""

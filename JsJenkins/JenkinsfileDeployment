@@ -72,8 +72,6 @@ pipeline {
                     }
 
                     env.FOLDER_NAME = "${JOB_NAME}".split('/').first()
-                    def ticketNumber = generalUtil.parseTicketNumber(PR_BRANCH)
-                    generalUtil.cleanMergedBranchReportsFromWebServer(FOLDER_NAME, ticketNumber)
                 }
             }
         }

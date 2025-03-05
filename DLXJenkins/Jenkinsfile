@@ -207,7 +207,22 @@ pipeline {
 
                     String stageName = "Webgl"
                     String errorMassage = "WebGL Build failed"
-                    unityUtil.runUnityStage(stageName, errorMassage) 
+                    unityUtil.runUnityStage(stageName, errorMassage)
+
+                    echo 'Sending Bitbucket WebGL build report'
+                    String pythonArgs = " ${COMMIT_HASH}" +
+                                        " ${REPORT_DIR}/build_project_results/*.log"
+
+                    // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
+                    if ((params.DEBUG_MODE ?: "").toUpperCase() == "Y") {
+                        pythonArgs += " --debug"
+                        echo "pythonArgs: ${pythonArgs}"
+                    }
+                    sh " python ${env.WORKSPACE}/python/create_bitbucket_webgl_build_report.py  ${pythonArgs}"
+
+
+                    echo 'Sending WebGL build and build log to dlx-webhost server'
+                    generalUtil.publishBuildResultsToWebServer(FOLDER_NAME, TICKET_NUMBER, "${PROJECT_DIR}/Builds", "${REPORT_DIR}/build_project_results")
                 }
             }
         }

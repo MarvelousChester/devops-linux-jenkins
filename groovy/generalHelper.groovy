@@ -278,17 +278,54 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
     sh "scp -i ${env.SSH_KEY} -rp ${reportDir}/* ${env.DLX_WEB_HOST_URL}:${destinationDir}"
 }
 
+
 /**
- * Deletes the reports for a merged branch from the remote web server.
+ * Publishes WebGL build and build_project.log to a remote web server.
+ * The function creates the necessary directories on the server, adjusts permissions,
+ * and uploads the reports using SSH and SCP.
+ *
+ * @param remoteProjectFolderName : The name of the remote project folder on the web server.
+ * @param ticketNumber            : The identifier for the ticket associated with the test results.
+ * @param webglDir                : The local directory containing the webgl builds to be uploaded.
+ * @param buildLogDir             : The local directory containing the webgl build result log file to be uploaded.
+ */
+void publishBuildResultsToWebServer(remoteProjectFolderName, ticketNumber = null, webglDir, buildLogDir) {
+    echo 'Attempting to publish WebGL build and log file to web server...'
+    String destinationDir = "/var/www/html/${remoteProjectFolderName}/PR-Builds/${ticketNumber}"
+
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
+    \"mkdir -p ${destinationDir}/Build-Log \
+    && chown vconadmin:vconadmin ${destinationDir} \
+    && chmod 755 /var/www/html/${remoteProjectFolderName} \
+    && chmod -R 755 /var/www/html/${remoteProjectFolderName}/PR-Builds \""""
+
+    try {
+        echo 'Copying WebGL build to web server...'
+        sh "scp -i ${env.SSH_KEY} -rp ${webglDir}/* ${env.DLX_WEB_HOST_URL}:'${destinationDir}'"
+
+        echo 'Copying WebGL log to web server...'
+        sh "scp -i ${env.SSH_KEY} -rp ${buildLogDir}/*.log ${env.DLX_WEB_HOST_URL}:'${destinationDir}/Build-Log'"
+
+        echo 'Files copied successfully.'
+    } catch (Exception e) {
+        echo "ERROR: Failed to copy files to web server: ${e.getMessage()}"
+        error("File copy step failed - please check logs.")
+    }
+}
+
+
+/**
+ * Deletes the WebGL build for a merged branch from the remote web server.
  * This function removes the directory associated with the branch's ticket number
  * to clean up after a successful merge.
  *
  * @param remoteProjectFolderName The name of the remote project folder on the web server.
  * @param ticketNumber The identifier for the ticket associated with the branch whose reports need to be removed.
  */
-def cleanMergedBranchReportsFromWebServer(remoteProjectFolderName, ticketNumber) {
+def cleanMergedBranchFromWebServer(remoteProjectFolderName, ticketNumber) {
+    // Remove WebGL build and its log file from dlx-webhost server
     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
-    \"sudo rm -r -f /var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}\""""
+    \"rm -r -f /var/www/html/${remoteProjectFolderName}/PR-Builds/${ticketNumber}\""""
 }
 
 /**
