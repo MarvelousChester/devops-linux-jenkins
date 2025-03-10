@@ -128,6 +128,7 @@ pipeline {
                 }
                 echo 'running lint script'
                 script {
+                    sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
                     echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
                     def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true
                     echo "After bash call, exit code: ${exitCode}"
