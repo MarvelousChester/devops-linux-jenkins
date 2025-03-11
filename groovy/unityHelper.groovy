@@ -144,8 +144,8 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
         if (!logConfig.containsKey(stage)) {
             throw new IllegalArgumentException("Invalid stageName: ${stage}. Valid options are 'EditMode', 'PlayMode', 'Coverage', 'Webgl', or 'Rider'.")
         }
-            logFilePath = logConfig[stage].path
-            logFileUrl = logConfig[stage].url
+        logFilePath = logConfig[stage].path
+        logFileUrl = logConfig[stage].url
     }
 
     /**
@@ -204,7 +204,7 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
     }
 
     // Add graphics and quit options
-    finalCommand = (stageName != 'PlayMode')
+    finalCommand = (stageName != 'Webgl')
         ? (finalCommand + ' -nographics')
         : ('/usr/bin/xvfb-run -a ' + finalCommand)
     // Caution: if -quit is used for EditMode and PlayMode, it would not generate OpenCov files
@@ -276,7 +276,7 @@ String fetCoverageOptionsKeyAndValue(String assemblyName, String projectDir, Str
     // Common options
     String assemblyFiltersOption = "assemblyFilters:${assemblyName}"
     String sourcePathsOption = "sourcePaths:${projectDir}"
-    String pathFiltersOption = "pathFilters:+Assets/Scripts/**"
+    String pathFiltersOption = 'pathFilters:+Assets/Scripts/**'
 
     if (['EditMode', 'PlayMode'].contains(stageName)) {
         // Load PathsToExclude from Unity's Code Coverage settings JSON file
