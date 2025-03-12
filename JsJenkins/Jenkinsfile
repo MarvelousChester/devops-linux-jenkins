@@ -16,12 +16,14 @@ pipeline {
         string(name: 'PR_COMMIT', defaultValue: '', description: '')
         string(name: 'PR_PROJECT', defaultValue: '', description: '')
         string(name: 'PR_STATE', defaultValue: '', description: '')
-        string(name: 'TEST_RUN', defaultValue: '', description: 'This is a test run trigger. Fill in the parameter form with \'Y\' to run the pipeline without commit changes.')
+        string(name: 'TEST_RUN', defaultValue: '',
+        description: 'This is a test run trigger. Fill in the parameter form with \'Y\' to run the pipeline without commit changes.')
     }
 
     triggers {
         GenericTrigger(
             genericVariables: [
+                /* groovylint-disable DuplicateStringLiteral */
                 [key: 'PR_BRANCH', value: '$.pullrequest.source.branch.name'],
                 [key: 'PR_DESTINATION_BRANCH', value: '$.pullrequest.destination.branch.name'],
                 [key: 'PR_REPO_HTML', value: '$.repository.links.self.href'],
@@ -29,6 +31,7 @@ pipeline {
                 [key: 'PR_COMMIT', value: '$.pullrequest.source.commit.hash'],
                 [key: 'PR_PROJECT', value: '$.repository.full_name'],
                 [key: 'PR_STATE', value: '$.pullrequest.state']
+                /* groovylint-enable DuplicateStringLiteral */
             ],
 
             tokenCredentialId: 'trigger-token',
@@ -55,7 +58,8 @@ pipeline {
     }
 
     stages {
-        // Prepare WORKSPACE: Environment Setup, WORKSPACE Preparation(Branch Management), Unity Setup, Initial running the project on Unity Editor
+        // Prepare WORKSPACE: Environment Setup, WORKSPACE Preparation(Branch Management),
+        //  Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
                 dir("${PROJECT_DIR}") {
@@ -129,18 +133,26 @@ pipeline {
                     jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false)
 
                     // Change back to default directory
+                    // groovylint-disable-next-line DuplicateStringLiteral
                     sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
 
                 script {
-                    echo "Publish test results html to dlx-webhost server..."
-                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}/coverage/${params.SERVER_SOURCE_FOLDER}/lcov-report", "server")
-                    generalUtil.publishTestResultsHtmlToWebServer(FOLDER_NAME, TICKET_NUMBER, "${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}/coverage/${params.CLIENT_SOURCE_FOLDER}/lcov-report", "client")
+                    skipMessage = 'Skip report sending process...'
+                    echo 'Publish test results html to dlx-webhost server...'
+                    generalUtil.publishTestResultsHtmlToWebServer(
+                        FOLDER_NAME, TICKET_NUMBER,
+                        "${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}/coverage/${params.SERVER_SOURCE_FOLDER}/lcov-report",
+                         'server')
+                    generalUtil.publishTestResultsHtmlToWebServer(
+                        FOLDER_NAME, TICKET_NUMBER,
+                        "${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}/coverage/${params.CLIENT_SOURCE_FOLDER}/lcov-report",
+                        'client')
 
-                    echo "Retrieve file paths of test summary JSON files"
-                    final String COVERAGE_SUMMARY_FILE_NAME = "coverage-summary.json"
-                    final String TEST_SUMMARY_FILE_NAME = "test-results.json"
-                    
+                    echo 'Retrieve file paths of test summary JSON files'
+                    final String COVERAGE_SUMMARY_FILE_NAME = 'coverage-summary.json'
+                    final String TEST_SUMMARY_FILE_NAME = 'test-results.json'
+
                     // Processing the sending Bitbucket Coverage report
                     // Check whether project has a server-side codes or not
                     if (params.SERVER_SOURCE_FOLDER?.trim()) {
@@ -152,35 +164,37 @@ pipeline {
                         )
 
                         // Check the return value
+                        // groovylint-disable-next-line InvertedIfElse
                         if (!serverTestSummaryDirs.isEmpty()) {
-                            echo "Server-side summary files are founded."
+                            /* groovylint-disable DuplicateStringLiteral */
+                            echo 'Server-side summary files are founded.'
                             echo "Coverage Summary Path: ${serverTestSummaryDirs['coverageSummaryDir']}"
                             echo "Test Summary Path: ${serverTestSummaryDirs['testSummaryDir']}"
 
-                            echo "Send the server-side coverage report to Bitbucket"
+                            echo 'Send the server-side coverage report to Bitbucket'
                             String cmdArgs = " ${COMMIT_HASH}" +
                                              " ${serverTestSummaryDirs['coverageSummaryDir']}" +
                                              " ${serverTestSummaryDirs['testSummaryDir']}" +
-                                             " --server"
+                                             ' --server'
 
                             // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
-                            if ((params.DEBUG_MODE ?: "").toUpperCase() == "Y") {
-                                cmdArgs += " --debug"
+                            if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
+                                cmdArgs += ' --debug'
                                 echo "cmdArgs: ${cmdArgs}"
                             }
 
                             sh " python python/create_bitbucket_coverage_report.py ${cmdArgs}"
+                            /* groovylint-enable DuplicateStringLiteral */
                         }
                         else {
-                            echo "Server-side summary files are not founded."
-                            echo "Skip report sending process..."
+                            echo 'Server-side summary files are not founded.'
+                            echo skipMessage
                         }
                     }
                     else {
-                        echo "params.SERVER_SOURCE_FOLDER is not founded..."
-                        echo "Skip report sending process..."
+                        echo 'params.SERVER_SOURCE_FOLDER is not founded...'
+                        echo skipMessage
                     }
-
 
                     // Check whether project has a client-side codes or not
                     if (params.CLIENT_SOURCE_FOLDER?.trim()) {
@@ -192,33 +206,35 @@ pipeline {
                         )
 
                         // Check the return value
+                        // groovylint-disable-next-line InvertedIfElse
                         if (!clientTestSummaryDirs.isEmpty()) {
-                            echo "Client-side summary files are founded."
+                            /* groovylint-disable DuplicateStringLiteral */
+                            echo 'Client-side summary files are founded.'
                             echo "Coverage Summary Path: ${clientTestSummaryDirs['coverageSummaryDir']}"
                             echo "Test Summary Path: ${clientTestSummaryDirs['testSummaryDir']}"
 
-                            String cmdArgs = 
+                            String cmdArgs =
                                 " ${COMMIT_HASH}" +
                                 " ${clientTestSummaryDirs['coverageSummaryDir']}" +
                                 " ${clientTestSummaryDirs['testSummaryDir']}" +
-                                " --client"
-                            
+                                ' --client'
                             // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
-                            if ((params.DEBUG_MODE ?: "").toUpperCase() == "Y") {
-                                cmdArgs += " --debug"
+                            if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
+                                cmdArgs += ' --debug'
                                 echo "cmdArgs: ${cmdArgs}"
                             }
 
                             sh " python python/create_bitbucket_coverage_report.py ${cmdArgs}"
+                            /* groovylint-enable DuplicateStringLiteral */
                         }
                         else {
-                            echo "Client-side summary files are not founded."
-                            echo "Skip report sending process..."
+                            echo 'Client-side summary files are not founded.'
+                            echo skipMessage
                         }
                     }
                     else {
-                        echo "params.CLIENT_SOURCE_FOLDER is not founded..."
-                        echo "Skip report sending process..."
+                        echo 'params.CLIENT_SOURCE_FOLDER is not founded...'
+                        echo skipMessage
                     }
                 }
             }
@@ -229,7 +245,7 @@ pipeline {
                 dir("${PROJECT_DIR}") {
                     script {
                         sh 'pwd'
-                        String scannerHome = tool 'sonarqube-scanner'
+                        String scannerHome = tool SONARQUBE_SCANNER
                         echo "SonarQube scanner located at: ${scannerHome}"
 
                         withSonarQubeEnv(SONARQUBE_SERVER) {
@@ -249,6 +265,7 @@ pipeline {
                         Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                            // groovylint-disable-next-line DuplicateStringLiteral
                             if ((status.entireCodeStatus != 'OK') && (status.newCodeStatus != 'OK')) {
                                 error('Quality gate failed!')
                         } else {

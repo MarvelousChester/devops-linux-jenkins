@@ -12,7 +12,7 @@
  * @throws MissingPropertyException If required parameters are missing.
  * @throws Exception If an invalid git repository exists or cleanup fails.
  */
-def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, String repoSsh, String branch) {
+void cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, String repoSsh, String branch) {
     if (!projectDir || !repoSsh || !branch) {
         error 'Missing required parameters for cloneOrUpdateRepo()'
     }
@@ -31,6 +31,7 @@ def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, 
         if (isGitRepo) {
             echo 'Project already exists. Fetching latest changes...'
             dir(projectDir) {
+                /* groovylint-disable DuplicateStringLiteral */
                 echo 'Current branch before checkout:'
                 sh 'git branch --show-current'
 
@@ -45,6 +46,7 @@ def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, 
                 sh 'git branch --show-current'
 
                 sh 'git pull'
+                /* groovylint-enable DuplicateStringLiteral */
             }
         } else {
             echo 'Invalid git repository. Cleaning up and cloning a fresh...'
@@ -65,9 +67,12 @@ def cloneOrUpdateRepo(String projectType, String workingDir, String projectDir, 
  *
  * @return string The name of the default branch
  */
-def getDefaultBranch() {
+String getDefaultBranch() {
     // Use git remote show to get the default branch
-    def defaultBranch = sh(script: "git remote show origin | grep 'HEAD branch' | awk '{print \$NF}'", returnStdout: true).trim()
+    def defaultBranch = sh(script: """git remote show origin | \\
+        grep 'HEAD branch' | \\
+        awk '{print \$NF}'""",
+        returnStdout: true).trim()
     if (!defaultBranch) {
         error 'Failed to determine the default branch from the remote repository.'
     }
@@ -82,7 +87,7 @@ def getDefaultBranch() {
  * @param commitHash The hash for the commit that triggered the pipeline
  * @param prBranch The branch name that triggered the pipeline
  */
-def initializeEnvironment(String workspace, String commitHash, String prBranch) {
+void initializeEnvironment(String workspace, String commitHash, String prBranch) {
     echo "Sending 'In Progress' status to Bitbucket..."
     sendBuildStatus(workspace, 'INPROGRESS', commitHash)
     env.TICKET_NUMBER = parseTicketNumber(prBranch)
@@ -95,10 +100,12 @@ def initializeEnvironment(String workspace, String commitHash, String prBranch) 
  * @param projectDir The folder containing project files
  * @param targetBranch The branch to check out
  */
-def checkoutBranch(String projectDir, String targetBranch) {
+void checkoutBranch(String projectDir, String targetBranch) {
     dir(projectDir) {
         echo "Checking out branch ${targetBranch}..."
-        boolean branchExists = sh(script: "git show-ref --verify --quiet refs/heads/${targetBranch} || git show-ref --verify --quiet refs/remotes/origin/${targetBranch}", returnStatus: true) == 0
+        boolean branchExists = sh(script: """git show-ref --verify --quiet refs/heads/${targetBranch} || \\
+            git show-ref --verify --quiet refs/remotes/origin/${targetBranch}""",
+            returnStatus: true) == 0
         if (!branchExists) {
             error "Branch ${targetBranch} does not exist locally or remotely."
         }
@@ -108,7 +115,7 @@ def checkoutBranch(String projectDir, String targetBranch) {
         sh 'git clean -fd'
         // checkout to the target branch
         sh "git checkout ${targetBranch}"
-        // Syncronize the target remote branch and local branch
+        // Synchronize the target remote branch and local branch
         sh "git reset --hard origin/${targetBranch}"
     }
 }
@@ -117,14 +124,17 @@ def checkoutBranch(String projectDir, String targetBranch) {
  * This function encapsulates the git action of merging the default branch into the PR branch
  * if it is determined the branch is not up to date.
  */
-def mergeBranchIfNeeded() {
+void mergeBranchIfNeeded() {
     def destinationBranch = getDefaultBranch()
     try {
         echo 'Fetching latest changes from origin...'
+        // groovylint-disable-next-line DuplicateStringLiteral
         sh 'git fetch origin'
 
         // Check if the destination branch exists remotely
-        def branchExists = sh(script: "git show-ref --verify --quiet refs/remotes/origin/${destinationBranch}", returnStatus: true) == 0
+        def branchExists = sh(script: "git show-ref --verify --quiet refs/remotes/origin/${destinationBranch}",
+        returnStatus: true) == 0
+
         if (!branchExists) {
             error "Branch ${destinationBranch} does not exist in the remote repository."
         }
@@ -146,6 +156,7 @@ def mergeBranchIfNeeded() {
         }
     } catch (Exception e) {
         echo "An error occurred during the merge process: ${e.getMessage()}"
+        // groovylint-disable-next-line DuplicateStringLiteral
         error('Merge process failed.')
     }
 }
@@ -156,7 +167,7 @@ def mergeBranchIfNeeded() {
  * @param branch The branch to check (e.g., pr-branch).
  * @return true if the local branch is up-to-date with the remote branch, false otherwise.
  */
-def isBranchUpToDateWithRemote(String branch) {
+boolean isBranchUpToDateWithRemote(String branch) {
     return sh(
         script: "git fetch origin ${branch} && [ \$(git rev-parse HEAD) = \$(git rev-parse origin/${branch}) ]",
         returnStatus: true
@@ -168,7 +179,7 @@ def isBranchUpToDateWithRemote(String branch) {
  *
  * @return true if the local branch is up-to-date with the main branch, false otherwise.
  */
-def isBranchUpToDateWithMain(destinationBranch) {
+boolean isBranchUpToDateWithMain(String destinationBranch) {
     return sh(script: "git merge-base --is-ancestor origin/${destinationBranch} @", returnStatus: true) == 0
 }
 
@@ -178,7 +189,7 @@ def isBranchUpToDateWithMain(destinationBranch) {
  * @param destinationBranch The target branch to merge into the local branch.
  * @return true if the merge is successful, false otherwise.
  */
-def tryMerge(String destinationBranch) {
+boolean tryMerge(String destinationBranch) {
     echo "Attempting to merge origin/${destinationBranch}..."
     return sh(script: "git merge origin/${destinationBranch}", returnStatus: true) == 0
 }
@@ -191,8 +202,10 @@ def tryMerge(String destinationBranch) {
  * @param shortCommit The short commit hash.
  * @return string The long commit hash.
  */
-def getFullCommitHash(String workspace, String shortCommit) {
-    def fullHash = sh(script: "python '${workspace}/python/get_bitbucket_commit_hash.py' ${shortCommit}", returnStdout: true).trim()
+String getFullCommitHash(String workspace, String shortCommit) {
+    def fullHash = sh(script: "python '${workspace}/python/get_bitbucket_commit_hash.py' ${shortCommit}",
+    returnStdout: true).trim()
+
     if (!fullHash) {
         error "Failed to retrieve the full commit hash for ${shortCommit}."
     }
@@ -204,7 +217,7 @@ def getFullCommitHash(String workspace, String shortCommit) {
  *
  * @return string The short commit hash.
  */
-def getCurrentCommitHash() {
+String getCurrentCommitHash() {
     return sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
 }
 
@@ -229,7 +242,7 @@ void sendBuildStatus(String workspace, String state, String commitHash, Boolean 
         echo "Executing build status update: ${pythonCommand}"
 
         def exitCode = sh(script: pythonCommand, returnStatus: true)
-        
+
         if (exitCode != 0) {
             echo "Build status update script failed with exit code: ${exitCode}."
         }
@@ -242,15 +255,17 @@ void sendBuildStatus(String workspace, String state, String commitHash, Boolean 
  * Extracts a ticket number from a branch name using a predefined pattern.
  * The pattern matches strings in the format "ABC-123" (letters followed by a hyphen and digits).
  *
- * @param branchName The name of the branch from which to extract the ticket number.
- * @return The extracted ticket number if a match is found, or null if no match is found.
+ * @param String branchName The name of the branch from which to extract the ticket number.
+ * @return String The extracted ticket number if a match is found, or null if no match is found.
  */
-def parseTicketNumber(branchName) {
+String parseTicketNumber(String branchName) {
     def patternMatches = branchName =~ /[A-Za-z]+-[0-9]+/
 
     if (patternMatches) {
+        // patternMatches[0] is "ABC-123" if branchName is "feature/ABC-123"
         return patternMatches[0]
     }
+    return null
 }
 
 /**
@@ -265,8 +280,14 @@ def parseTicketNumber(branchName) {
  * @param buildNumber Optional. The build number associated with the test results. If provided,
  *                    the reports will be placed under a subdirectory for that build.
  */
-def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, reportDir, reportType, buildNumber = null) {
+void publishTestResultsHtmlToWebServer(
+    String remoteProjectFolderName,
+    String ticketNumber,
+    String reportDir,
+    String reportType,
+    String buildNumber = null) {
     echo 'Attempting to publish results to web server'
+    // groovylint-disable-next-line LineLength
     def destinationDir = buildNumber ? "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/Build-${buildNumber}/${reportType}-report" : "/var/www/html/${remoteProjectFolderName}/Reports/${ticketNumber}/${reportType}-report"
 
     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
@@ -277,7 +298,6 @@ def publishTestResultsHtmlToWebServer(remoteProjectFolderName, ticketNumber, rep
 
     sh "scp -i ${env.SSH_KEY} -rp ${reportDir}/* ${env.DLX_WEB_HOST_URL}:${destinationDir}"
 }
-
 
 /**
  * Publishes WebGL build and build_project.log to a remote web server.
@@ -309,10 +329,9 @@ void publishBuildResultsToWebServer(remoteProjectFolderName, ticketNumber = null
         echo 'Files copied successfully.'
     } catch (Exception e) {
         echo "ERROR: Failed to copy files to web server: ${e.getMessage()}"
-        error("File copy step failed - please check logs.")
+        error('File copy step failed - please check logs.')
     }
 }
-
 
 /**
  * Deletes the WebGL build for a merged branch from the remote web server.
@@ -322,8 +341,7 @@ void publishBuildResultsToWebServer(remoteProjectFolderName, ticketNumber = null
  * @param remoteProjectFolderName The name of the remote project folder on the web server.
  * @param ticketNumber The identifier for the ticket associated with the branch whose reports need to be removed.
  */
-def cleanMergedBranchFromWebServer(remoteProjectFolderName, ticketNumber) {
-    // Remove WebGL build and its log file from dlx-webhost server
+void cleanMergedBranchFromWebServer(remoteProjectFolderName, ticketNumber) {
     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \
     \"rm -r -f /var/www/html/${remoteProjectFolderName}/PR-Builds/${ticketNumber}\""""
 }
@@ -333,15 +351,15 @@ def cleanMergedBranchFromWebServer(remoteProjectFolderName, ticketNumber) {
  * This function searches for directories matching the branch name, deletes them,
  * and also removes any associated temporary directories (`@tmp`) if they exist.
  *
- * @param prBranch The name of the pull request branch to clean up.
+ * @param String prBranch The name of the pull request branch to clean up.
  */
-def cleanUpPRBranch(String prBranch) {
+void cleanUpPRBranch(String prBranch) {
     // Find the path of 'find' directory searching tool
     def findPath = sh(script: 'command -v find', returnStdout: true).trim()
     if (!findPath) {
         echo "'find' directory searching tool is not found..."
         echo "Installing 'find' directory searching tool..."
-        // install 'find' Linux seaching tool
+        // install 'find' Linux searching tool
         int installStatus = sh(script: 'sudo apt-get update && sudo apt-get install -y findutils', returnStatus: true)
         if (installStatus == 0 ) {
             echo "The 'findutils' package was installed successfully."
@@ -353,6 +371,7 @@ def cleanUpPRBranch(String prBranch) {
 
     // Find the branch path
     def branchPaths = sh(script: "${findPath} ../ -type d -name \"${prBranch}\"", returnStdout: true).trim()
+    // groovylint-disable-next-line InvertedIfElse
     if (!branchPaths.isEmpty()) {
         // Split paths into an array
         def paths = branchPaths.split('\n')
@@ -383,19 +402,21 @@ def cleanUpPRBranch(String prBranch) {
  * This function identifies processes holding open files in the given directory,
  * extracts their PIDs, and forcefully terminates those processes if they still exist.
  *
- * @param branchPath The path to the directory where log files are checked for open processes.
+ * @param String branchPath The path to the directory where log files are checked for open processes.
  */
 void closeLogfiles(String branchPath) {
     try {
         // Check whether there are open files in the target directory
         def openFiles = sh(script: "lsof +D ${branchPath}", returnStdout: true).trim()
 
+        // groovylint-disable-next-line InvertedIfElse
         if (!openFiles.isEmpty()) {
             echo "Open files found in the directory: ${branchPath}"
             echo 'List of opened files:'
             echo "${openFiles}"
 
             // Extract unique PIDs from the open files
+            // groovylint-disable-next-line DuplicateStringLiteral
             def pids = openFiles.split('\n').findAll {
                 it.contains('pid:') && it.contains("${prBranch}") // Filtering lines related to the target branch
             }.collect { line ->

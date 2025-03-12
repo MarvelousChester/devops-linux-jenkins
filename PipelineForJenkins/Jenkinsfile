@@ -18,12 +18,14 @@ pipeline {
         string(name: 'PR_COMMIT', defaultValue: '', description: '')
         string(name: 'PR_PROJECT', defaultValue: '', description: '')
         string(name: 'PR_STATE', defaultValue: '', description: '')
-        string(name: 'TEST_RUN', defaultValue: '', description: 'This is a test run trigger. Fill in the parameter form with \'Y\' to run the pipeline without commit changes.')
+        string(name: 'TEST_RUN', defaultValue: '',
+        description: 'This is a test run trigger. Fill in the parameter form with \'Y\' to run the pipeline without commit changes.')
     }
 
     triggers {
         GenericTrigger(
             genericVariables: [
+                /* groovylint-disable DuplicateStringLiteral */
                 [key: 'PR_BRANCH', value: '$.pullrequest.source.branch.name'],
                 [key: 'PR_DESTINATION_BRANCH', value: '$.pullrequest.destination.branch.name'],
                 [key: 'PR_REPO_HTML', value: '$.repository.links.self.href'],
@@ -31,6 +33,7 @@ pipeline {
                 [key: 'PR_COMMIT', value: '$.pullrequest.source.commit.hash'],
                 [key: 'PR_PROJECT', value: '$.repository.full_name'],
                 [key: 'PR_STATE', value: '$.pullrequest.state']
+                /* groovylint-enable DuplicateStringLiteral */
             ],
             tokenCredentialId: 'trigger-token',
             regexpFilterText: '$PR_STATE',
@@ -45,9 +48,11 @@ pipeline {
         PROJECT_DIR = "${env.WORKSPACE}/${params.PR_REPO_NAME}"
         REPORT_DIR = "${env.WORKSPACE}/docs"
         BITBUCKET_ACCESS_TOKEN = credentials('bitbucket-access-token')
+        /* groovylint-disable DuplicateStringLiteral */
         JAVA_HOME = tool 'JDK 17'
         GROOVY_HOME = tool 'Groovy'
-        PATH = "${JAVA_HOME}/bin:${GROOVY_HOME}/bin:${PATH}" // Include both Java and Groovy in PATH
+        /* groovylint-enable DuplicateStringLiteral */
+        PATH = "${JAVA_HOME}/bin:${GROOVY_HOME}/bin:${PATH}"
         JOB_REPO = "${PR_REPO_HTML}"
     }
 
@@ -86,9 +91,11 @@ pipeline {
                     // Print docker info for troubleshooting
                     sh 'docker info'
                     echo 'Running groovy lint using Docker image nvuillam/npm-groovy-lint with disabled entrypoint'
+                    def imageStr = 'nvuillam/npm-groovy-lint'
+                    def entrypointStr = '--entrypoint=""'
 
-                    // Run lint commands inside the Docker container and capture the exit code.
-                    def exitCode = docker.image('nvuillam/npm-groovy-lint').inside('--entrypoint=""') {
+                    // First lint: Groovy scripts
+                    def exitCodeGroovy = docker.image(imageStr).inside(entrypointStr) {
                         return sh(
                             returnStatus: true,
                             script: """
@@ -96,14 +103,42 @@ pipeline {
                                 npm-groovy-lint \\
                                     --failon error \\
                                     --output groovy-lint-report.json \\
-                                    --config ${PROJECT_DIR}/PipelineForJenkins/.groovylintrc.groovy.json \\
+                                    --config ${PROJECT_DIR}/.groovylintrc.groovy.json \\
                                     ${PROJECT_DIR}/groovy
+                            """
+                        )
+                    }
 
+                    echo "Groovy lint exit code: ${exitCodeGroovy}"
+
+                    if (exitCodeGroovy != 0) {
+                        echo "Linting errors in Groovy scripts. Calling Python script with 'Fail'."
+                        sh script: """\
+                            python '${env.WORKSPACE}/python/Lint_groovy_report.py' \
+                            '${env.WORKSPACE}/groovy-lint-report.json' \
+                            '${env.WORKSPACE}/jenkins-lint-report.json' \
+                            ${COMMIT_HASH} \
+                            Fail '${PROJECT_DIR}'
+                        """.stripIndent()
+
+                        // Mark the stage as failed but let the pipeline continue if desired
+                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                            error("Groovy linting failed (exit code ${exitCodeGroovy})")
+                        }
+                    }
+
+                    // Second lint: Jenkinsfiles
+                    echo 'Running Jenkinsfile lint in Docker image nvuillam/npm-groovy-lint'
+
+                    def exitCodeJenkins = docker.image(imageStr).inside(entrypointStr) {
+                        return sh(
+                            returnStatus: true,
+                            script: """
                                 echo "Linting Jenkinsfiles in DLXJenkins, JsJenkins, PipelineForJenkins ..."
                                 npm-groovy-lint \\
                                     --failon error \\
                                     --output jenkins-lint-report.json \\
-                                    --config ${PROJECT_DIR}/PipelineForJenkins/.groovylintrc.jenkins.json \\
+                                    --config ${PROJECT_DIR}/.groovylintrc.jenkins.json \\
                                     ${PROJECT_DIR}/DLXJenkins \\
                                     ${PROJECT_DIR}/JsJenkins \\
                                     ${PROJECT_DIR}/PipelineForJenkins
@@ -111,20 +146,30 @@ pipeline {
                         )
                     }
 
-                    echo "After linting, exit code: ${exitCode}"
+                    echo "Jenkinsfile lint exit code: ${exitCodeJenkins}"
 
-                    // Determine status string and prepare to call the Python reporting script.
-                    if (exitCode != 0) {
-                        echo "Linting errors detected. Calling Python script with 'Fail'."
-                        sh script: "python '${env.WORKSPACE}/python/Lint_groovy_report.py' '${env.WORKSPACE}/groovy-lint-report.json' '${env.WORKSPACE}/jenkins-lint-report.json' ${COMMIT_HASH} Fail '${PROJECT_DIR}'"
-
-                        // Mark the stage as failed, but allow the pipeline to continue if desired.
+                    if (exitCodeJenkins != 0 || exitCodeGroovy != 0) {
+                        echo "Linting errors in Jenkinsfiles. Calling Python script with 'Fail'."
+                        sh script: """\
+                            python '${env.WORKSPACE}/python/Lint_groovy_report.py' \
+                            '${env.WORKSPACE}/groovy-lint-report.json' \
+                            '${env.WORKSPACE}/jenkins-lint-report.json' \
+                            ${COMMIT_HASH} \
+                            Fail '${PROJECT_DIR}'
+                        """.stripIndent()
+                        //groovylint-disable-next-line DuplicateMapLiteral, DuplicateStringLiteral
                         catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                            error("Linting failed with exit code: ${exitCode}")
+                            error("Jenkinsfile linting failed (exit code ${exitCodeJenkins})")
                         }
                     } else {
-                        echo "No linting errors detected. Calling Python script with 'Pass'."
-                        sh script: "python '${env.WORKSPACE}/python/Lint_groovy_report.py' '${env.WORKSPACE}/groovy-lint-report.json' '${env.WORKSPACE}/jenkins-lint-report.json' ${COMMIT_HASH} Pass '${PROJECT_DIR}'"
+                        echo "No Jenkinsfile lint errors. Calling Python script with 'Pass'."
+                        sh script: """\
+                            python '${env.WORKSPACE}/python/Lint_groovy_report.py' \
+                            '${env.WORKSPACE}/groovy-lint-report.json' \
+                            '${env.WORKSPACE}/jenkins-lint-report.json' \
+                            ${COMMIT_HASH} \
+                            Pass '${PROJECT_DIR}'
+                        """.stripIndent()
                     }
                 }
             }
@@ -135,7 +180,9 @@ pipeline {
                     echo 'Generating Groovydoc...'
                     dir(PROJECT_DIR) {
                         // Capture the list of .groovy files into a variable
-                        def fileList = sh(script: "find ${PROJECT_DIR}/groovy -type f -name '*.groovy'", returnStdout: true).trim()
+                        def fileList = sh(
+                            script: "find ${PROJECT_DIR}/groovy -type f -name '*.groovy'",
+                            returnStdout: true).trim()
 
                         if (!fileList) {
                             error "No .groovy files found in ${PROJECT_DIR}/groovy"

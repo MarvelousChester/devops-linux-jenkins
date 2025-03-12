@@ -1,6 +1,7 @@
 {
   "extends": "all",
   "rules": {
+    "NglParseError": "off",
     "basic.DeadCode": "error",
     "convention.CompileStatic": "off",
     "convention.FieldTypeRequired": "info",
@@ -12,7 +13,7 @@
     "dry.DuplicateListLiteral": "info",
     "dry.DuplicateMapLiteral": "warning",
     "dry.DuplicateNumberLiteral": {
-      "ignoreNumbers": [0, 1, 2, 3, -1],
+      "ignoreNumbers": "0,1,2,3,-1",
       "severity": "info"
     },
     "dry.DuplicateStringLiteral": "info",
@@ -42,6 +43,9 @@
     "unused.UnusedPrivateMethod": "error",
     "unused.UnusedPrivateMethodParameter": "error",
     "unused.UnusedVariable": "error",
-    "unnecessary.UnnecessaryReturnKeyword": "off"
+    "unnecessary.UnnecessaryReturnKeyword": "off",
+    "format.LineLength": {
+      "length": 140
+    }
   }
 }

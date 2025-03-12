@@ -1,5 +1,16 @@
+/* groovylint-disable NglParseError */
+
 import groovy.json.JsonSlurper
 import hudson.FilePath
+
+// constants for stage names
+// groovylint-disable VariableName, UnusedVariable
+this.EDIT_MODE = 'EditMode'
+this.PLAY_MODE = 'PlayMode'
+this.COVERAGE   = 'Coverage'
+this.WEBGL     = 'Webgl'
+this.RIDER     = 'Rider'
+// groovylint-enable VariableName, UnusedVariable
 
 /**
  * This function encapsulates the calling of our helper python script which will create and send
@@ -9,7 +20,7 @@ import hudson.FilePath
  * @param reportDir The directory that holds the test reports.
  * @param commitHash The short commit hash that triggered this pipeline run.
  */
-def sendTestReport(workspace, reportDir, commitHash) {
+void sendTestReport(workspace, reportDir, commitHash) {
     sh "python \'${workspace}/python/create_bitbucket_test_report.py\' \'${commitHash}\' \'${reportDir}\'"
 }
 
@@ -21,7 +32,7 @@ def sendTestReport(workspace, reportDir, commitHash) {
  * @param logPath The path to the log file that needs to be analyzed for errors.
  * @return The output from the Python script, which contains the analysis results.
  */
-def parseLogsForError(logPath) {
+String parseLogsForError(logPath) {
     return sh(script: "python \'${workspace}/python/get_unity_failure.py\' \'${logPath}\'", returnStdout: true)
 }
 
@@ -35,22 +46,33 @@ def parseLogsForError(logPath) {
  * @return The path to the Unity executable as a string.
  * @throws Exception If an error occurs during the retrieval or installation of the Unity executable.
  */
-def getUnityExecutable(workspace, projectDir) {
+String getUnityExecutable(workspace, projectDir) {
     try {
-        def unityExecutable = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' executable-path", returnStdout: true).trim()
+        def unityExecutable = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' executable-path",
+        returnStdout: true).trim()
+
         if (!fileExists(unityExecutable)) {
-            def version = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' version", returnStdout: true).trim()
-            def revision = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' revision", returnStdout: true).trim()
+            def version = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' version",
+             returnStdout: true).trim()
+
+            def revision = sh(script: "python '${workspace}/python/get_unity_version.py' '${projectDir}' revision",
+             returnStdout: true).trim()
 
             echo "Unity Editor version ${version} not found. Attempting installation..."
-            def installCommand = "\"C:\\Program Files\\Unity Hub\\Unity Hub.exe\" -- --headless install --version ${version} --changeset ${revision}"
+            def installCommand = """\"C:\\Program Files\\Unity Hub\\Unity Hub.exe\" \\
+            -- --headless install \\
+            --version ${version} \\
+            --changeset ${revision}"""
             def exitCode = sh(script: installCommand, returnStatus: true)
             if (exitCode != 0) {
                 error("Failed to install Unity Editor version ${version}.")
             }
 
             echo 'Installing WebGL Build Support...'
-            def webglInstallCommand = "\"C:\\Program Files\\Unity Hub\\Unity Hub.exe\" -- --headless install-modules --version ${version} -m webgl"
+            def webglInstallCommand = """\"C:\\Program Files\\Unity Hub\\Unity Hub.exe\" \\
+            -- --headless install-modules \\
+            --version ${version} \\
+            -m webgl"""
             exitCode = sh(script: webglInstallCommand, returnStatus: true)
             if (exitCode != 0) {
                 error("Failed to install WebGL Build Support for Unity version ${version}.")
@@ -74,7 +96,7 @@ void runUnityStage(String stageName, String errorMessage) {
     int exitCode = -1
     try {
         // Run Unity batch mode and capture the exit code
-        exitCode = runUnityBatchMode(UNITY_EXECUTABLE, PROJECT_DIR, REPORT_DIR, stageName)
+        exitCode = runUnityBatchMode(env.UNITY_EXECUTABLE, env.PROJECT_DIR, env.REPORT_DIR, stageName)
     } catch (Exception e) {
         // Log exception details and terminate the pipeline with an error message
         echo "Exception type: ${e.class.name}"
@@ -100,6 +122,7 @@ void runUnityStage(String stageName, String errorMessage) {
  * @param stageName The name of the stage to execute (e.g., "EditMode", "PlayMode").
  * @return int The exit code of the Unity batch mode process.
  */
+ // groovylint-disable-next-line MethodSize
 int runUnityBatchMode(String unityExecutable, String projectDirectory, String reportDirectory, String stageName) {
     String batchModeBaseCommand = '' // Base command for Unity batch mode in any stage
     String logFilePath = '' // Path to the log file
@@ -118,33 +141,37 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
      * @param stage The stage name (e.g., "EditMode", "PlayMode").
      */
     Closure setLogFilePathAndUrl = { String prBranch, String reportDir, String stage ->
+    // groovylint-disable-next-line DuplicateStringLiteral
         String jobName = CI_PIPELINE == 'true' ? 'PRJob' : 'DeploymentJob'
 
         Map logConfig = [
-            EditMode: [
+            (EDIT_MODE): [
                 path: "${reportDir}/test_results/${stage}-tests.log",
                 url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/test_results/${stage}-tests.log"
             ],
-            PlayMode: [
+            (PLAY_MODE): [
                 path: "${reportDir}/test_results/${stage}-tests.log",
                 url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/test_results/${stage}-tests.log"
             ],
-            Coverage: [
+            (COVERAGE): [
                 path: "${reportDir}/coverage_results/coverage_report.log",
                 url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/coverage_results/coverage_report.log"
             ],
-            Webgl: [
+            (WEBGL): [
                 path: "${reportDir}/build_project_results/build_project.log",
                 url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/build_project_results/build_project.log"
            ],
-            Rider: [
+            (RIDER): [
                 path: "${reportDir}/batchmode_results/batch_mode_execution.log",
                 url: "${env.BUILD_URL}execution/node/3/ws/${jobName}/${prBranch}/batchmode_results/batch_mode_execution.log"
             ]
         ]
 
         if (!logConfig.containsKey(stage)) {
-            throw new IllegalArgumentException("Invalid stageName: ${stage}. Valid options are 'EditMode', 'PlayMode', 'Coverage', 'Webgl', or 'Rider'.")
+            throw new IllegalArgumentException("""
+            Invalid stageName: ${stage}.
+            Valid options are '${EDIT_MODE}', '${PLAY_MODE}', '${COVERAGE}', '${WEBGL}', or '${RIDER}'.
+            """.stripIndent())
         }
         logFilePath = logConfig[stage].path
         logFileUrl = logConfig[stage].url
@@ -187,30 +214,31 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
         -logFile ${logFilePath}"
 
     // Generate test run arguments
-    testRunArgs = ['EditMode', 'PlayMode'].contains(stageName) ? getTestRunArgs(reportDirectory, stageName) : ''
+    testRunArgs = [EDIT_MODE, PLAY_MODE].contains(stageName) ? getTestRunArgs(reportDirectory, stageName) : ''
 
     // Generate code coverage arguments
-    codeCoverageArgs = ['EditMode', 'PlayMode', 'Coverage'].contains(stageName) ? getCodeCoverageArguments(projectDirectory, reportDirectory, stageName) : ''
+    codeCoverageArgs = [EDIT_MODE, PLAY_MODE, COVERAGE].contains(stageName) ?
+    getCodeCoverageArguments(projectDirectory, reportDirectory, stageName) : ''
 
     // Generate additional arguments for WebGL build and Synchronizing Unity and Rider
-    additionalArgs = ['Webgl', 'Rider'].contains(stageName) ? getAdditionalArgs(stageName) : ''
+    additionalArgs = [WEBGL, RIDER].contains(stageName) ? getAdditionalArgs(stageName) : ''
 
     // Build the final command based on the stage
     finalCommand = batchModeBaseCommand
-    if (['EditMode', 'PlayMode'].contains(stageName)) {
+    if ([EDIT_MODE, PLAY_MODE].contains(stageName)) {
         finalCommand += " ${testRunArgs} ${codeCoverageArgs}"
-    } else if (stageName == 'Coverage') {
+    } else if (stageName == COVERAGE) {
         finalCommand += " ${codeCoverageArgs}"
-    } else if (['Webgl', 'Rider'].contains(stageName)) {
+    } else if ([WEBGL, RIDER].contains(stageName)) {
         finalCommand += " ${additionalArgs}"
     }
 
     // Add graphics and quit options
-    finalCommand = (stageName != 'Webgl' && stageName != 'PlayMode')
+    finalCommand = (stageName != WEBGL && stageName != PLAY_MODE)
         ? (finalCommand + ' -nographics')
         : ('/usr/bin/xvfb-run -a ' + finalCommand)
     // Caution: if -quit is used for EditMode and PlayMode, it would not generate OpenCov files
-    finalCommand += (stageName != 'PlayMode' && stageName != 'EditMode') ? ' -quit' : ''
+    finalCommand += (stageName != PLAY_MODE && stageName != EDIT_MODE) ? ' -quit' : ''
 
     // Execute the final command and capture the exit code
     int exitCode = sh(script: "${finalCommand}", returnStatus: true)
@@ -280,11 +308,11 @@ String fetCoverageOptionsKeyAndValue(String assemblyName, String projectDir, Str
     String sourcePathsOption = "sourcePaths:${projectDir}"
     String pathFiltersOption = 'pathFilters:+Assets/Scripts/**'
 
-    if (['EditMode', 'PlayMode'].contains(stageName)) {
+    if ([EDIT_MODE, PLAY_MODE].contains(stageName)) {
         // Load PathsToExclude from Unity's Code Coverage settings JSON file
         String pathsToExclude = loadPathsToExclude(projectDir)
         return buildCoverageOptions(assemblyFiltersOption, sourcePathsOption, pathFiltersOption, pathsToExclude)
-    } else if (stageName == 'Coverage') {
+    } else if (stageName == COVERAGE) {
         // For Coverage stage, generate HTML and badge reports
         return "-coverageOptions \"${assemblyFiltersOption};generateHtmlReport;generateBadgeReport\""
     }
@@ -329,10 +357,9 @@ String loadPathsToExclude(String projectDir) {
  * @return String The formatted coverage options string.
  */
 String buildCoverageOptions(String assemblyFiltersOption, String sourcePathsOption, String pathFiltersOption, String pathsToExclude) {
-    if (pathsToExclude) {
-        return "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption},${pathsToExclude}\""
-    }
-    return "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption}\""
+    return pathsToExclude ?
+        "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption},${pathsToExclude}\"" :
+        "-coverageOptions \"${assemblyFiltersOption};${sourcePathsOption};${pathFiltersOption}\""
 }
 
 return this

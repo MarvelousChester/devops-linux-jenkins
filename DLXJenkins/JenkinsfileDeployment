@@ -1,5 +1,3 @@
-def editMode = 'EditMode'
-def playMode = 'PlayMode'
 def generalUtil
 def unityUtil
 def mainBranches = ['main', 'master']
@@ -20,6 +18,7 @@ pipeline {
     triggers {
         GenericTrigger(
             genericVariables: [
+                /* groovylint-disable DuplicateStringLiteral */
                 [key: 'PR_BRANCH', value: '$.pullrequest.source.branch.name'],
                 [key: 'PR_DESTINATION_BRANCH', value: '$.pullrequest.destination.branch.name'],
                 [key: 'PR_REPO_HTML', value: '$.repository.links.self.href'],
@@ -27,6 +26,7 @@ pipeline {
                 [key: 'PR_COMMIT', value: '$.pullrequest.source.commit.hash'],
                 [key: 'PR_PROJECT', value: '$.repository.full_name'],
                 [key: 'PR_STATE', value: '$.pullrequest.state']
+                /* groovylint-enable DuplicateStringLiteral */
             ],
 
             tokenCredentialId: 'trigger-token',
@@ -130,7 +130,10 @@ pipeline {
                 script {
                     sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
                     echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
-                    def exitCode = sh script: "sh \'${env.WORKSPACE}/Bash/Linting.bash\' \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'", returnStatus: true
+                    def exitCode = sh script: """sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
+                        \'${PROJECT_DIR}\' \\
+                        \'${REPORT_DIR}/linting_results\'""", returnStatus: true
+
                     echo "After bash call, exit code: ${exitCode}"
                     //handle exit code here no reports to be sent, since this for deployment and not PRs
                     if (exitCode != 0) {
@@ -206,11 +209,22 @@ pipeline {
                         echo "List of DLX Repositories: ${DLX_PROJECT_LIST}"
 
                         // Create the directory and update the file permission
-                        sh script: "ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} \"sudo mkdir -p /var/www/html/${FOLDER_NAME} && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}\""
+                        sh script: """
+                            ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} \\
+                            "sudo mkdir -p /var/www/html/${FOLDER_NAME} && sudo chown vconadmin:vconadmin /var/www/html/${FOLDER_NAME}"
+                        """
+
                         // Secured copy all WebGL components to the econestoga dlx server
-                        sh script: "scp -i ${env.SSH_KEY} -rp ${PROJECT_DIR}/Builds/* ${env.DLX_ECONESTOGA_URL}:/var/www/html/${FOLDER_NAME}"
-                        //call script to update the WebGL "index.html"
-                        sh script: "ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} 'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'"
+                        sh script: """
+                            scp -i ${env.SSH_KEY} -rp ${PROJECT_DIR}/Builds/* \\
+                            ${env.DLX_ECONESTOGA_URL}:/var/www/html/${FOLDER_NAME}
+                        """
+
+                        // Call script to update the WebGL "index.html"
+                        sh script: """
+                            ssh -i ${env.SSH_KEY} ${env.DLX_ECONESTOGA_URL} \\
+                            'bash ~/ShellScripts/UpdateBuildURL.sh /var/www/html/${FOLDER_NAME}'
+                        """
                     }
                 }
             }

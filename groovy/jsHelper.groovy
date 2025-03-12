@@ -2,13 +2,30 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 /**
+ * A helper method for logging messages. If the script is running in a Jenkins pipeline,
+ * it will use the 'echo' step; otherwise, it falls back to println.
+ *
+ * @param String message        The message to log/print
+ */
+void logMessage(String message) {
+    try {
+        // If running in Jenkins and 'echo' is available, use it
+        echo message
+    } catch (MissingMethodException e) {
+        // Otherwise, fallback to standard output
+        //groovylint-disable-next-line Println
+        println message
+    }
+}
+
+/**
  * Identifies subdirectories within a project folder that contain a `package.json` file.
  * This function is typically used to find directories that require testing or dependency installation.
  *
- * @param projectFolder The path to the root project folder to scan for subdirectories.
- * @return A comma-separated string of absolute paths to the subdirectories containing a `package.json` file.
+ * @param String projectFolder The path to the root project folder to scan for subdirectories.
+ * @return String A comma-separated string of absolute paths to the subdirectories containing a `package.json` file.
  */
-def findTestingDirs(projectFolder) {
+String findTestingDirs(String projectFolder) {
     def directoriesToTest = []
     def projectDir = new File(projectFolder)
 
@@ -17,13 +34,26 @@ def findTestingDirs(projectFolder) {
 
     if (subDirs) {
         for (def dir:subDirs) {
-            println "Directory with package.json: ${dir}"
+            logMessage("Directory with package.json: ${dir}")
             directoriesToTest.add(dir.absolutePath)
         }
-    }else {
-        println 'No directories with package.json found'
+    } else {
+        logMessage('No directories with package.json found')
     }
     return directoriesToTest.join(',')
+}
+
+/**
+ * Helper function to reduce code reuse, finds the version number of the associated package.json
+ *
+ * @return String the found value for the version number withing the ppackage.json
+ */
+String getPackageJsonVersion() {
+    ret = sh(
+        script: "node -p \"require('./package.json').version\"",
+        returnStdout: true
+    ).trim()
+    return ret
 }
 
 /**
@@ -39,7 +69,7 @@ void installNpmInTestingDirs(String testingDirs) {
         echo "Testing directories don't exist."
         return
     }
-
+    //groovylint-disable-next-line DuplicateStringLiteral
     List<String> testDirs = testingDirs.split(',') as List<String>
     for (String dirPath : testDirs) {
         // Check if directory exists
@@ -64,7 +94,9 @@ void installNpmInTestingDirs(String testingDirs) {
             echo reportFile.text
 
             // Call the Python script to process the audit report
-            String pythonCommand = "python '${WORKSPACE}/python/npm_audit.py' '${COMMIT_HASH}' '${dirPath}/audit-report.json'"
+            String pythonCommand = """python '${WORKSPACE}/python/npm_audit.py'
+            '${COMMIT_HASH}' '${dirPath}/audit-report.json'
+            """
             echo "Executing Python script for audit analysis: ${pythonCommand}"
             exitCode = sh(script: pythonCommand, returnStatus: true)
 
@@ -99,11 +131,13 @@ void installNpmInTestingDirs(String testingDirs) {
  */
 void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
     if (testingDirs == null || testingDirs.isEmpty()) {
+        //groovylint-disable-next-line DuplicateStringLiteral
         echo "Testing directories don't exist."
         return
     }
 
     // Split testingDirs into a list of directories
+    //groovylint-disable-next-line DuplicateStringLiteral
     List<String> testDirs = testingDirs.split(',') as List<String>
 
     for (String dirPath : testDirs) {
@@ -134,31 +168,19 @@ void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
 
 /**
  * Checks the installed versions of Node.js and NPM, and retrieves the current NPM configuration.
- * This function handles the commands for the appropriate environment being Windows, or Linux.
+ * This function handles the commands for Linux. since this repo is for Linux specifically.
  *
  * The versions and configuration are echoed to the console for verification.
  */
-def checkNodeVersion() {
-    // Cross-platform handling for Node and NPM checks
+void checkNodeVersion() {
     try {
-        if (isUnix()) {
-            def nodeVersion = sh(script: 'node -v', returnStdout: true).trim()
-            def npmVersion = sh(script: 'npm -v', returnStdout: true).trim()
-            def npmConfig = sh(script: 'npm config ls', returnStdout: true).trim()
+        def nodeVersion = sh(script: 'node -v', returnStdout: true).trim()
+        def npmVersion = sh(script: 'npm -v', returnStdout: true).trim()
+        def npmConfig = sh(script: 'npm config ls', returnStdout: true).trim()
 
-            echo "Node.js version: ${nodeVersion}"
-            echo "NPM version: ${npmVersion}"
-            echo "NPM config: ${npmConfig}"
-        } else {
-            //Windows must use bat otherwise issues are caused when calling node and npm
-            def nodeVersion = bat(script: 'node -v', returnStdout: true).trim()
-            def npmVersion = bat(script: 'npm -v', returnStdout: true).trim()
-            def npmConfig = bat(script: 'npm config ls', returnStdout: true).trim()
-
-            echo "Node.js version: ${nodeVersion}"
-            echo "NPM version: ${npmVersion}"
-            echo "NPM config: ${npmConfig}"
-        }
+        echo "Node.js version: ${nodeVersion}"
+        echo "NPM version: ${npmVersion}"
+        echo "NPM config: ${npmConfig}"
     } catch (Exception e) {
         error "An error occurred while checking Node.js and NPM versions: ${e.getMessage()}"
     }
@@ -172,13 +194,12 @@ def checkNodeVersion() {
  * @param workingDir (Optional) This is the directory to run the command in (default: ".")
  * @return 0 for command success, 1 for command fail.
  */
-def runCommandReturnStatus(command, String workingDir = '.') {
+int runCommandReturnStatus(command, String workingDir = '.') {
     if (isUnix()) {
         return sh(script: "cd \"${workingDir}\" && ${command}", returnStatus: true)
-    } else {
-        //Windows must use bat otherwise issues are caused when calling node and npm
-        return bat(script: command, returnStatus: true)
     }
+    //Windows must use bat otherwise issues are caused when calling node and npm
+    return bat(script: command, returnStatus: true)
 }
 
 /**
@@ -194,11 +215,13 @@ def runCommandReturnStatus(command, String workingDir = '.') {
  */
 void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
     if (testingDirs == null || testingDirs.isEmpty()) {
+        //groovylint-disable-next-line DuplicateStringLiteral
         echo "Testing directories don't exist."
         return
     }
 
     // Split testingDirs into a list of directories
+    //groovylint-disable-next-line DuplicateStringLiteral
     List<String> testDirs = testingDirs.split(',') as List<String>
 
     for (String dirPath : testDirs) {
@@ -228,9 +251,11 @@ void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
 /**
  * Retrieves the quality gate status for a project and a specific build from the SonarQube server.
  *
- * - The <strong>project quality gate</strong> evaluates the entire project to determine whether it meets the quality gate standards.
+ * - The <strong>project quality gate</strong> evaluates the entire project
+ * to determine whether it meets the quality gate standards.
  * Thus, the project quality gate status reflects the overall quality of the entire project.
- * - The <strong>build quality gate</strong>evaluates only the changed code in the PR branch to ensure it meets the quality gate standards.
+ * - The <strong>build quality gate</strong>evaluates only the changed code in the PR branch
+ * to ensure it meets the quality gate standards.
  * Therefore, the build quality gate status reflects the quality of the changes in the PR.
  *
  * @param String projectKey The key (identifier) of the SonarQube project.
@@ -254,8 +279,8 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
     // Retry loop to handle IN_PROGRESS status or transient failures
     for (int retryCount = 1; retryCount <= maxRetries; retryCount++) {
-        println '----------------------------------------------------------------------------------------------------------------------------------------------------------------'
-        println "Send an HTTP GET request to SonarQube Server using ${buildStatusURL}"
+        logMessage('--------------------------------------------------------------------------------------------------')
+        logMessage("Send an HTTP GET request to SonarQube Server using ${buildStatusURL}")
 
         // Execute the HTTP GET request
         def process = buildStatusAPIcall.execute()
@@ -263,7 +288,7 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
         // Check whether HTTP request was successfully executed or not
         if (process.exitValue() != 0) {
-            println "HTTP request failed with exit code: ${process.exitValue()}"
+            logMessage("HTTP request failed with exit code: ${process.exitValue()}")
             break
         }
 
@@ -273,11 +298,11 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
         // Print the response in a pretty format
         def prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(buildStatus))
-        println prettyJson
+        logMessage(prettyJson)
 
         // Check whether the Quality Gate is still processing or not
         if (buildStatus?.queue?.size() > 0) {
-            println 'Code Analysis is still in progress...'
+            logMessage('Code Analysis is still in progress...')
 
             // Free the LazyMap and process object to avoid serialization issues
             process = null
@@ -289,17 +314,17 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
         }
 
         // If the queue is empty, analysis is complete
-        println 'Code Analysis is complete or no queue data.'
-        println 'Checking the analysis status of the overall code...'
+        logMessage('Code Analysis is complete or no queue data.')
+        logMessage('Checking the analysis status of the overall code...')
 
         // Check whether 'current' has a valid status
         if (buildStatus?.current?.status) {
-            println "The status of project analysis is ${buildStatus.current.status}"
+            logMessage("The status of project analysis is ${buildStatus.current.status}")
 
             // Create analysis status API request form
             String qualityGateResultAPIcall = "curl -u ${adminToken}: ${qualityGateResultURL}"
-            println '----------------------------------------------------------------------------------------------------------------------------------------------------------------'
-            println "Send an HTTP GET request to SonarQube Server using ${qualityGateResultURL}"
+            logMessage('---------------------------------------------------------------------------------------------------')
+            logMessage("Send an HTTP GET request to SonarQube Server using ${qualityGateResultURL}")
 
             // Execute the HTTP GET request for Quality Gate results
             def newProcess = qualityGateResultAPIcall.execute()
@@ -307,7 +332,7 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
             // Check whether HTTP request was successfully executed or not
             if (newProcess.exitValue() != 0) {
-                println "HTTP request failed with exit code: ${newProcess.exitValue()}"
+                logMessage("HTTP request failed with exit code: ${newProcess.exitValue()}")
                 break
             }
 
@@ -317,13 +342,13 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
 
             // Print the response in a pretty format
             prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(qualityGateResult))
-            println prettyJson
+            logMessage(prettyJson)
 
             // Check analysis status of new code
             if (qualityGateResult?.projectStatus?.conditions?.size() > 0) {
                 def firstCondition = qualityGateResult.projectStatus.conditions[0] // Access the first condition safely
-                println "Analysis status of entire code is ${qualityGateResult.projectStatus.status}"
-                println "Analysis status of new code is ${firstCondition?.status ?: 'Unknown'}"
+                logMessage("Analysis status of entire code is ${qualityGateResult.projectStatus.status}")
+                logMessage("Analysis status of new code is ${firstCondition?.status ?: 'Unknown'}")
 
                 // Exit the function after successfully processing the Quality Gate results
                 return [entireCodeStatus: qualityGateResult.projectStatus.status, newCodeStatus: firstCondition.status]
@@ -332,17 +357,21 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
     }
 
     // If retries are exhausted, log a message
-    println 'Max retries reached. Status may still be IN_PROGRESS.'
+    logMessage('Max retries reached. Status may still be IN_PROGRESS.')
+    // groovylint-disable-next-line ReturnsNullInsteadOfEmptyCollection
     return null
 }
 
 /**
  * <strong>Overview</strong>
- * <br> Compares two version strings and determines if the current project version is up-to-date with the deployed ACR (Azure Container Registry) version.
- * <br> This function is commonly used to verify version consistency between the deployment pipeline and the project build process.
+ * <br> Compares two version strings and determines if the current project version is up-to-date
+ * with the deployed ACR (Azure Container Registry) version.
+ * <br> This function is commonly used to verify version consistency between the deployment
+ * pipeline and the project build process.
  *
  * <br><strong>Function Description</strong>
- * <br>- This function compares the deployed version (`azContainerVersion`) from ACR with the current project version (`projectVersion`).
+ * <br>- This function compares the deployed version (`azContainerVersion`) from ACR with
+ * the current project version (`projectVersion`).
  * <br>- Versions are expected to follow the semantic versioning format (e.g., 1.0.0, 2.1.3).
  * <br>- Each version string is split into major, minor, and patch components and compared numerically.
  *
@@ -361,7 +390,7 @@ Map checkQualityGateStatus(String projectKey, String adminToken) {
  * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong>false</strong> : If the project version is up-to-date or newer than the deployed version.
  */
 boolean versionCompare(String azContainerVersion, String projectVersion) {
-    println 'versionCompare() executed'
+    logMessage('versionCompare() executed')
     // Closure Function
     // : Check whether the string can be converted to an positive integer
     Closure<Boolean> isInteger = { String value ->
@@ -378,13 +407,13 @@ boolean versionCompare(String azContainerVersion, String projectVersion) {
         if (parts.every { isInteger(it) }) {
             // Transfer string to int and return as an int[]
             return parts.collect { it as int } as int[]  // Convert to int[]
-        } else {
-            error "Invalid version format: '${version}'. All parts must be integers."
-    }
+        }
+        // with return in if throw error if get to end
+        error "Invalid version format: '${version}'. All parts must be integers."
 }
 
-    println "Latest Version on ACR: ${azContainerVersion}"
-    println "Project Version      : ${projectVersion}"
+    logMessage("Latest Version on ACR: ${azContainerVersion}")
+    logMessage("Project Version      : ${projectVersion}")
 
     // Parse the version strings into int arrays
     int[] currentParts = parseVersion(azContainerVersion)
@@ -413,36 +442,32 @@ boolean versionCompare(String azContainerVersion, String projectVersion) {
  * @param projectDir              Base directory of the project (server or client).
  * @param coverageSummaryFileName Expected to be `"coverage-summary.json"`.
  * @param testSummaryFileName     Expected to be `"test-results.json"`.
- * 
+ *
  * @return Map
  * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong> Failrue </strong> : Returns an empty Map if one or both files are missing.
- * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong> Success </strong> : Returns a Map containing the absolute paths of both the coverage and test result files.
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - <strong> Success </strong> : Returns a Map containing the absolute paths of both
+ * the coverage and test result files.
  *
  **/
- Map retrieveReportSummaryDirs(String projectDir, String coverageSummaryFileName, String testSummaryFileName) {
-    println "Trying to find paths of ${coverageSummaryFileName} and ${testSummaryFileName} in the ${projectDir} base directory..."
+Map retrieveReportSummaryDirs(String projectDir, String coverageSummaryFileName, String testSummaryFileName) {
+    logMessage("Trying to find paths of ${coverageSummaryFileName} and ${testSummaryFileName} in the ${projectDir} base directory...")
 
     // find the path of "coverage-summary.json"
     String coverageSummaryDir = sh(script: "find '${projectDir}' -type f -name '${coverageSummaryFileName}'", returnStdout: true).trim()
     if (!coverageSummaryDir) {
-        println "Failed to find coverage summary file: '${coverageSummaryFileName}' in '${projectDir}'"
+        logMessage("Failed to find coverage summary file: '${coverageSummaryFileName}' in '${projectDir}'")
     }
 
     // find the path of "test-results.json"
     String testSummaryDir = sh(script: "find '${projectDir}' -type f -name '${testSummaryFileName}'", returnStdout: true).trim()
     if (!testSummaryDir) {
-        println "Failed to find test summary file: '${testSummaryFileName}' in '${projectDir}'"
+        logMessage("Failed to find test summary file: '${testSummaryFileName}' in '${projectDir}'")
     }
 
-    if (!coverageSummaryDir || !testSummaryDir) {
-        return [:]  // Return empty Map
-    }
-
-    // return test summary file paths as a Map container
-    return [
-        coverageSummaryDir: coverageSummaryDir,
-        testSummaryDir: testSummaryDir
-    ]
+    // Return empty map if either file is not found, otherwise return the map with file paths
+    return (!coverageSummaryDir || !testSummaryDir)
+           ? [:]
+           : [coverageSummaryDir: coverageSummaryDir, testSummaryDir: testSummaryDir]
 }
 
 return this

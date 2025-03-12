@@ -107,6 +107,17 @@ def main():
         "Authorization": "Bearer " + access_token
     }
 
+    # Clear the old report first
+    try:
+        delete_response = requests.delete(url, headers=headers)
+        # It's common for a DELETE to return a 204 (No Content) or even a 404 if the report didn't exist.
+        if delete_response.status_code not in (200, 204, 404):
+            print(f"Failed to delete old report: {delete_response.status_code} {delete_response.text}")
+            exit(1)
+    except requests.exceptions.RequestException as e:
+        print(f"Error while deleting old report: {e}")
+        exit(1)
+
     # Process both linting reports.
     groovy_data = get_json_normalized(args["groovy_report_path"])
     jenkins_data = get_json_normalized(args["jenkins_report_path"])

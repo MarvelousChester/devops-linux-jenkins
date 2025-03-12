@@ -13,12 +13,19 @@
     "java.JavaIoPackageAccess": "off",
     "naming.VariableName": "off",
     "naming.FactoryMethodName": "off",
+    "dry.DuplicateNumberLiteral": {
+      "ignoreNumbers": "0,1,2,3,-1",
+      "severity": "info"
+    },
     "unnecessary.UnnecessaryGetter": "off",
     "size.NestedBlockDepth": {
       "maxNestedBlockDepth": 10
     },
     "unused.UnusedVariable": {
       "ignoreVariableNames": "_"
+    },
+    "format.LineLength": {
+      "length": 140
     }
   }
 }
