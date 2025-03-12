@@ -83,7 +83,9 @@ void runUnityStage(String stageName, String errorMessage) {
     }
     // Check the exit code and handle success/failure
     if (exitCode != 0) {
-        echo "${stageName} Unity batch mode failed with exit code: ${exitCode}"
+        catchError(stageResult: 'FAILURE') {
+            error("${stageName} Unity batch mode failed with exit code: ${exitCode}")
+        }
     } else {
         echo "${stageName} completed successfully."
     }
@@ -204,7 +206,7 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
     }
 
     // Add graphics and quit options
-    finalCommand = (stageName != 'Webgl')
+    finalCommand = (stageName != 'Webgl' && stageName != 'PlayMode')
         ? (finalCommand + ' -nographics')
         : ('/usr/bin/xvfb-run -a ' + finalCommand)
     // Caution: if -quit is used for EditMode and PlayMode, it would not generate OpenCov files
