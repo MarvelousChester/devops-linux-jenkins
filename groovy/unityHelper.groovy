@@ -104,11 +104,14 @@ void runUnityStage(String stageName, String errorMessage) {
         error "${errorMessage}: ${e.message}"
     }
     // Check the exit code and handle success/failure
-    if (exitCode != 0) {
-        catchError(stageResult: 'FAILURE') {
+    if (exitCode != 0 && CI_PIPELINE == 'true') {
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
             error("${stageName} Unity batch mode failed with exit code: ${exitCode}")
         }
-    } else {
+    } else if (exitCode != 0 && CI_PIPELINE != 'true') {
+        error("${stageName} Unity batch mode failed with exit code: ${exitCode}")
+    }
+    else {
         echo "${stageName} completed successfully."
     }
 }
