@@ -256,31 +256,24 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
 void validateBuildLightingFiles(){
 
     echo 'Finding Lighting and Probe files...'
-    
-    // Test using sh
-    def fileExists = sh(script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
-    if (fileExists) {
-        echo "File exists!"
-    } else {
-        echo "File does not exist."
-    }
-
+    // I can use this but want to figure out why the hell fileExists don't work
 
     warnError('Lighting file NOT found'){
-        def filePath = "${env.PROJECT_DIR}/Assets/Scenes/Main\\Scene/LightingData.asset"
-        if(!fileExists(filePath)){
+        def fileFound = sh(script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
+        if(!fileFound){
             error("File does not exist at: ${filePath}")
         }
         echo "Lighting file found"
     }
     warnError('Reflection Probe Lighting file NOT found'){ // QUESTION, is this needed?
-        def filePath = "${env.PROJECT_DIR}/Assets/Scenes/Main\\Scene/ReflectionProbe-0.exr"
-        if(!fileExists(filePath)){
+        def fileFound = sh(script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
+        if(fileFound){
             error("File does not exist at: ${filePath}")
         }
         echo "Reflection Probe Lighting file found"
     }
 }
+
 
 /**
  * Generates code coverage arguments for Unity batch mode.
