@@ -258,14 +258,18 @@ void validateBuildLightingFiles(){
     echo 'Finding Lighting and Probe files...'
 
     warnError('Lighting file NOT found'){
-        if(!fileExists("\"${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset\"")){
-            throw new Exception()
+        def filePath = "\"${PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset\""
+        if(!fileExists(filePath)){
+            error("File does not exist at: ${filePath}")
         }
+        echo "Lighting file found"
     }
     warnError('Reflection Probe Lighting file NOT found'){
+        def filePath = "\"${PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr\""
         if(fileExists("\"${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr\"")){
-            throw new Exception()
+            error("File does not exist at: ${filePath}")
         }
+        echo "Reflection Probe Lighting file found"
     }
 }
 
