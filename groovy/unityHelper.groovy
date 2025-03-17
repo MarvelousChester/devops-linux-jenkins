@@ -267,7 +267,7 @@ void validateBuildLightingFiles(){
     }
     warnError('Reflection Probe Lighting file NOT found'){ // QUESTION, is this needed?
         def fileFound = sh(script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
-        if(fileFound){
+        if(!fileFound){
             error("File does not exist at: ${filePath}")
         }
         echo "Reflection Probe Lighting file found"
