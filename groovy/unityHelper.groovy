@@ -253,6 +253,22 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
     return exitCode
 }
 
+void validateBuildLightingFiles(){
+
+    echo 'Finding Lighting and Probe files...'
+
+    warnError('Lighting file NOT found'){
+        if(!fileExists("\"${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset\"")){
+            throw new Exception()
+        }
+    }
+    warnError('Reflection Probe Lighting file NOT found'){
+        if(fileExists("\"${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr\"")){
+            throw new Exception()
+        }
+    }
+}
+
 /**
  * Generates code coverage arguments for Unity batch mode.
  *

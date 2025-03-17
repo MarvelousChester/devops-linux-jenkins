@@ -231,6 +231,8 @@ pipeline {
                     String errorMassage = 'WebGL Build failed'
                     unityUtil.runUnityStage(stageName, errorMassage)
 
+                    unityUtil.validateBuildLightingFiles()
+
                     echo 'Sending Bitbucket WebGL build report'
                     String pythonArgs = " ${COMMIT_HASH}" +
                                         " ${REPORT_DIR}/build_project_results/*.log"
