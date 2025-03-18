@@ -37,7 +37,7 @@ pipeline {
             ],
             tokenCredentialId: 'trigger-token',
             regexpFilterText: '$PR_STATE',
-            regexpFilterExpression: 'OPEN'
+            regexpFilterExpression: 'OPEN|MERGED'
         )
     }
 
@@ -72,6 +72,7 @@ pipeline {
 
                         COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
+                        // This sets environment variables for TICKET_NUMBER and FOLDER_NAME
                         generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
 
                         echo 'Cloning or updating repository...'
@@ -198,6 +199,10 @@ pipeline {
                         """
 
                         echo "Documentation generated at ${REPORT_DIR}"
+
+                        if (params.PR_STATE == 'MERGED') {
+                            generalUtil.publishGroovyDocToWebServer(REPORT_DIR)
+                        }
                     }
                 }
             }

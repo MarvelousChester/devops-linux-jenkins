@@ -459,4 +459,39 @@ void closeLogfiles(String branchPath) {
     }
 }
 
+/**
+ * Publishes GroovyDoc HTML reports to a remote web server.
+ * The function creates the necessary directories on the server, adjusts permissions,
+ * uploads the reports using SSH and SCP, and then recursively updates permissions
+ * on the remote folder.
+ *
+ * @param reportDir    The local directory containing the GroovyDoc HTML reports to be uploaded.
+ */
+void publishGroovyDocToWebServer(
+    String reportDir) {
+
+    echo 'Attempting to publish GroovyDoc reports to web server'
+
+    def destinationDir = '/var/www/html/Jenkins/GroovyDoc'
+
+    // Create the directory on the remote server and adjust its ownership
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \\
+    "mkdir -p ${destinationDir} && sudo chown vconadmin:vconadmin ${destinationDir}"
+    """
+
+    // Optionally, clean the destination directory if it already exists
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \\
+    "if [ -d ${destinationDir} ]; then sudo rm -rf ${destinationDir}/*; fi"
+    """
+
+    // Upload the reports via SCP
+    sh "scp -i ${env.SSH_KEY} -rp ${reportDir}/* ${env.DLX_WEB_HOST_URL}:${destinationDir}"
+
+    // Recursively set permissions on the remote folder root:
+    // Directories: 755, Files: 644
+    sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \\
+    "find /var/www/html/Jenkins/ -type d -exec sudo chmod 755 {} \\; && \\
+     find /var/www/html/Jenkins/ -type f -exec sudo chmod 644 {} \\;" """
+}
+
 return this
