@@ -258,13 +258,15 @@ boolean fileExistsShellScript(String filePath) {
     return sh(script: "[ -f '${filePath}' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
 }
 
-void ensureFileExistOrWarn(String filePath, String warnMessage){
+boolean ensureFileExistOrWarn(String filePath, String warnMessage){
     
-    warnError("${warnMessage}: File does not exist at ${filepath}}") {
+    warnError("${warnMessage}: File does not exist at ${filepath}") {
         if(!fileExistsShellScript(filePath)) {
             error("")
+            return false;
         }
     }
+    return true
 }
 
 void validateBuildLightingFiles() {
@@ -272,8 +274,12 @@ void validateBuildLightingFiles() {
     def lightingFilePath = "${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset"
     def reflectionProbeFilePath = "${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr"
 
-    ensureFileExistOrWarn(lightingFilePath, 'Lighting file NOT found')
-    ensureFileExistOrWarn(reflectionProbeFilePath, 'Reflection Probe Lighting file NOT found')
+    if(ensureFileExistOrWarn(lightingFilePath, 'Lighting file NOT found')) { 
+        echo "Found Lighting file"
+    }
+    if(ensureFileExistOrWarn(reflectionProbeFilePath, 'Reflection Probe Lighting file NOT found')) {
+        echo "Found Reflection Probe file"
+    }
 }
 
 
