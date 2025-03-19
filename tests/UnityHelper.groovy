@@ -4,62 +4,39 @@ import groovy.io.FileType
 class UnityHelper extends Specification {
 
     def helper
+    def projectDIR
 
     def setup(){
         helper = new GroovyShell().parse(new File('groovy/unityHelper.groovy'))
+        projectDIR = System.getenv("PROJECT_DIR")
     }
 
-    // THIS GPT code but use it as foundation to understand 
-    def "should pass when both lighting and reflection probe files exist"() {
-        
+    def "checking file existence or warning should return when given correct path"() {
         given:
-        def lightingFile = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset")
-        lightingFile.mkdirs()
-        
-        def reflectionProbe = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr.asset")
-        reflectionProbe.mkdirs()
+        def tempDir = new File('tempTestDir')
+        tempDir.mkdirs()
 
         when:
-        helper.validateBuildLightingFiles()
+        helper.ensureFileExistOrWarn()
 
         then:
         true
+
+        cleanUp:
+        tempDir.deleteDir()
     }
 
-    def "should fail when lighting file is missing"() {
+    def "checking file existence or warning should return with error and log of file path not existing with warn message"() {
         given:
-        def reflectionProbe = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr.asset")
-        reflectionProbe.mkdirs()
-
-        when:
-        helper.validateBuildLightingFiles()
-
-        then:
-        def e = thrown(Exception)
-        e.message.contains("Lighting file NOT found")
-    }
-
-    def "should fail when reflection probe lighting file is missing"() {
-        given:
-        def lightingFile = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset")
-        lightingFile.mkdirs()
-
-        when:
-        helper.validateBuildLightingFiles()
-
-        then:
-        def e = thrown(Exception)
-        e.message.contains("Reflection Probe Lighting file NOT found")
-    }
-
-    def "should fail when both files are missing"() {
-        given:
+        def fakePath = "/FakeGibberishForTest"
+        def warnMessage = "Essential Fake Gibberish file not found"
         
         when:
-        scriptMock.validateBuildLightingFiles()
+        helper.ensureFileExistOrWarn()
 
         then:
         def e = thrown(Exception)
-        e.message.contains("Lighting file NOT found") && e.message.contains("Reflection Probe Lighting file NOT found")
+        e.message.contains("${warnMessage}: Path given ${filepath}}")
     }
+
 }
