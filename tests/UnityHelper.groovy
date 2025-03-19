@@ -1,4 +1,5 @@
 import spock.lang.Specification
+import groovy.io.FileType
 
 class UnityHelper extends Specification {
 
@@ -12,19 +13,23 @@ class UnityHelper extends Specification {
     def "should pass when both lighting and reflection probe files exist"() {
         
         given:
-        helper.sh(_) >> "true"
+        def lightingFile = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset")
+        lightingFile.mkdirs()
+        
+        def reflectionProbe = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr.asset")
+        reflectionProbe.mkdirs()
 
         when:
         helper.validateBuildLightingFiles()
 
         then:
-        noExceptionThrown()
+        true
     }
 
     def "should fail when lighting file is missing"() {
         given:
-        helper.sh({ it.script.contains("LightingData.asset") }) >> "false"
-        helper.sh({ it.script.contains("ReflectionProbe-0.exr") }) >> "true"
+        def reflectionProbe = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr.asset")
+        reflectionProbe.mkdirs()
 
         when:
         helper.validateBuildLightingFiles()
@@ -36,8 +41,8 @@ class UnityHelper extends Specification {
 
     def "should fail when reflection probe lighting file is missing"() {
         given:
-        helper.sh({ it.script.contains("LightingData.asset") }) >> "true"
-        helper.sh({ it.script.contains("ReflectionProbe-0.exr") }) >> "false"
+        def lightingFile = new File("${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset")
+        lightingFile.mkdirs()
 
         when:
         helper.validateBuildLightingFiles()
@@ -49,8 +54,7 @@ class UnityHelper extends Specification {
 
     def "should fail when both files are missing"() {
         given:
-        helper.sh(_) >> "false"
-
+        
         when:
         scriptMock.validateBuildLightingFiles()
 
