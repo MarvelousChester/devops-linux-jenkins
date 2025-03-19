@@ -253,29 +253,27 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
     return exitCode
 }
 
+
+boolean fileExistsShellScript(String filePath) {
+    return sh(script: "[ -f '${filePath}' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
+}
+
+void ensureFileExistOrWarn(String filePath, String warnMessage){
+    
+    warnError(warnMessage) {
+        if(!fileExists(filePath)) {
+            error("")
+        }
+    }
+}
+
 void validateBuildLightingFiles() {
     echo 'Finding Lighting and Probe files...'
+    def lightingFilePath = "${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset"
+    def reflectionProbeFilePath = "${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr"
 
-    warnError('Lighting file NOT found') {
-        def fileFound = sh(
-            script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/LightingData.asset' ] && echo 'true' || echo 'false'",
-            returnStdout: true).trim() == 'true'
-
-        if(!fileFound) {
-            error("File does not exist at: ${filePath}")
-        }
-        echo "Lighting file found"
-    }
-    warnError('Reflection Probe Lighting file NOT found') {
-        def fileFound = sh(
-            script: "[ -f '${env.PROJECT_DIR}/Assets/Scenes/Main Scene/ReflectionProbe-0.exr' ] && echo 'true' || echo 'false'",
-            returnStdout: true).trim() == 'true'
-
-        if(!fileFound) {
-            error("File does not exist at: ${filePath}")
-        }
-        echo "Reflection Probe Lighting file found"
-    }
+    ensureFileExistOrWarn(lightingFilePath, 'Lighting file NOT found')
+    ensureFileExistOrWarn(reflectionProbeFilePath, 'Reflection Probe Lighting file NOT found')
 }
 
 
