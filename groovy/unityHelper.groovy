@@ -260,8 +260,8 @@ boolean fileExistsShellScript(String filePath) {
 
 void ensureFileExistOrWarn(String filePath, String warnMessage){
     
-    warnError(warnMessage) {
-        if(!fileExists(filePath)) {
+    warnError("${warnMessage}: File does not exist at ${filepath}}") {
+        if(!fileExistsShellScript(filePath)) {
             error("")
         }
     }
