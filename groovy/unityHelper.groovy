@@ -258,9 +258,9 @@ boolean fileExistsShellScript(String filePath) {
     return sh(script: "[ -f '${filePath}' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
 }
 
-boolean ensureFileExistOrWarn(String filePath, String warnMessage){
+boolean ensureFileExistOrWarn(String filePath, String warnMessage = 'File not found'){
     
-    warnError("${warnMessage}: File does not exist at ${filepath}") {
+    warnError("${warnMessage}: File does not exist at ${filePath}") {
         if(!fileExistsShellScript(filePath)) {
             error("")
             return false;

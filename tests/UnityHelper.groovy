@@ -7,7 +7,9 @@ class UnityHelper extends Specification {
     def projectDIR
 
     def setup(){
-        helper = new GroovyShell().parse(new File('groovy/unityHelper.groovy'))
+        helper = new GroovyScriptEngine('./groovy').with {
+            loadScriptByName('unityHelper.groovy').newInstance()
+        }
         projectDIR = System.getenv("PROJECT_DIR")
     }
 
@@ -15,14 +17,14 @@ class UnityHelper extends Specification {
         given:
         def tempDir = new File('tempTestDir')
         tempDir.mkdirs()
-
+        println "${tempDir.absolutePath}"
         when:
-        helper.ensureFileExistOrWarn()
+        helper.ensureFileExistOrWarn(tempDir.absolutePath)
 
         then:
         true
 
-        cleanUp:
+        cleanup:
         tempDir.deleteDir()
     }
 
@@ -32,7 +34,7 @@ class UnityHelper extends Specification {
         def warnMessage = "Essential Fake Gibberish file not found"
         
         when:
-        helper.ensureFileExistOrWarn()
+        helper.ensureFileExistOrWarn(fakePath, warnMessage)
 
         then:
         def e = thrown(Exception)
