@@ -36,7 +36,7 @@ class UnityHelper extends Specification {
 
         then:
         def e = thrown(Exception)
-        e.message.contains("${warnMessage}: Path given ${filepath}}")
+        e.message.contains("${warnMessage}: Path given ${fakePath}}")
     }
 
 }
