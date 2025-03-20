@@ -1,23 +1,23 @@
 import spock.lang.Specification
-import groovy.io.FileType
 
 class UnityHelper extends Specification {
 
-    def helper
-    def projectDIR
+    GroovyScriptEngine helper
+    String projectDIR
 
-    def setup(){
+    def setup() {
         helper = new GroovyScriptEngine('./groovy').with {
             loadScriptByName('unityHelper.groovy').newInstance()
         }
-        projectDIR = System.getenv("PROJECT_DIR")
+        projectDIR = System.getenv('PROJECT_DIR')
     }
 
-    def "checking file existence or warning should return when given correct path"() {
+    def "ensureFileExistOrWarn should not log a warning and return success for a valid path"() {
         given:
         def tempDir = new File('tempTestDir')
         tempDir.mkdirs()
-        println "${tempDir.absolutePath}"
+        log.trace("${tempDir.absolutePath}")
+
         when:
         helper.ensureFileExistOrWarn(tempDir.absolutePath)
 
@@ -28,11 +28,11 @@ class UnityHelper extends Specification {
         tempDir.deleteDir()
     }
 
-    def "checking file existence or warning should return with error and log of file path not existing with warn message"() {
+    def "ensureFileExistOrWarn should log a warning and throw exception for a valid path"() {
         given:
-        def fakePath = "/FakeGibberishForTest"
-        def warnMessage = "Essential Fake Gibberish file not found"
-        
+        def fakePath = '/FakeGibberishForTest'
+        def warnMessage = 'Essential Fake Gibberish file not found'
+
         when:
         helper.ensureFileExistOrWarn(fakePath, warnMessage)
 
