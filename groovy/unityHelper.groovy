@@ -280,7 +280,6 @@ void validateBuildLightingFiles() {
     }
 }
 
-
 /**
  * Generates code coverage arguments for Unity batch mode.
  *
