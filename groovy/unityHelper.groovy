@@ -254,7 +254,7 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
 }
 
 boolean fileExistsShellScript(String filePath) {
-    return sh(script: "[ -f '${filePath}' ] && echo 'true' || echo 'false'", returnStdout: true).trim() == 'true'
+    return (sh(script: "[ -f '${filePath}' ]", returnStatus: true) == 0)
 }
 
 boolean ensureFileExistOrWarn(String filePath, String warnMessage = 'File not found') {
