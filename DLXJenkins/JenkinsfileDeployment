@@ -1,6 +1,8 @@
 def generalUtil
 def unityUtil
 def mainBranches = ['main', 'master']
+def sharedLib // Use this variable to store the shared library, work as import statement
+def resultStatus // Use this variable to store the package of result status, work as import statement
 
 pipeline {
     agent any
@@ -36,7 +38,7 @@ pipeline {
     }
 
     environment {
-        CI_PIPELINE = 'false'
+        CI_PIPELINE = false
         PROJECT_TYPE = 'Unity_Project'
         PROJECT_DIR = "${env.WORKSPACE}/${PROJECT_TYPE}"
         REPORT_DIR = "${env.WORKSPACE}/DeploymentJob/${PR_BRANCH}"
@@ -47,20 +49,54 @@ pipeline {
     }
 
     stages {
+        stage('Load Shared Library') {
+            steps {
+                script {
+                    try {
+                        def LIBRARY_PATH = 'sharedLibraries'
+                        echo "Loading local shared library from ${WORKSPACE}/${LIBRARY_PATH}"
+
+                        // Create temporary Git repository
+                        sh """
+                            cd ${WORKSPACE}/${LIBRARY_PATH} && \
+                            (rm -rf .git || true) && \
+                            git init && \
+                            git add --all && \
+                            git commit -m 'init'
+                        """
+
+                        // Get the path of the temporary Git repository
+                        def repoPath = sh(returnStdout: true, script: 'pwd').trim() + "/${LIBRARY_PATH}"
+
+                        // Shared Library Registration
+                        sharedLib = library identifier: 'local-lib@master',
+                                retriever: modernSCM([$class: 'GitSCMSource', remote: "${repoPath}"]),
+                                changelog: false
+                        echo 'Successfully loaded shared library'
+                    } catch (Exception e) {
+                        echo "Failed to load shared library: ${e.message}"
+                        error('Shared Library Loading Failed')
+                    }
+                }
+            }
+        }
         // Deletes the cloned branch from the build machine after it has been merged into main.
         // This prevents the build machine's storage from capping out.
         stage('Delete Merged Branch') {
             steps {
                 script {
-                    // Aborts the pipeline if it's not merging into the main.
-                    if (!mainBranches.contains(DESTINATION_BRANCH)) {
-                        env.FAILURE_REASON = 'Not merging to the main branch. Exiting the pipeline...'
-                        currentBuild.result = 'ABORTED'
-                        error(env.FAILURE_REASON)
-                    }
+                    // Load the necessary packages
+                    resultStatus = sharedLib.resource.ResultStatus
 
                     generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                     unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+
+                    // Aborts the pipeline if it's not merging into the main.
+                    if (!mainBranches.contains(DESTINATION_BRANCH)) {
+                        env.FAILURE_REASON = 'Not merging to the main branch. Exiting the pipeline...'
+                        currentBuild.result = buildResults.ABORTED
+                        error(env.FAILURE_REASON)
+                    }
 
                     // Getting the full commit hash from git in order to send the build status to Bitbucket.
                     COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
@@ -138,7 +174,7 @@ pipeline {
                     //handle exit code here no reports to be sent, since this for deployment and not PRs
                     if (exitCode != 0) {
                         //in this case we set build result to failure since we don't want to deploy bad code
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
                             error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
                         }
                     }

@@ -2,6 +2,8 @@ def pass = 'Pass'
 def fail = 'Fail'
 def generalUtil
 def unityUtil
+def sharedLib
+def resultStatus
 
 pipeline {
     agent any
@@ -57,6 +59,37 @@ pipeline {
     }
 
     stages {
+        stage('Load Shared Library') {
+            steps {
+                script {
+                    try {
+                        def LIBRARY_PATH = 'sharedLibraries'
+                        echo "Loading local shared library from ${WORKSPACE}/${LIBRARY_PATH}"
+
+                        // Create temporary Git repository
+                        sh """
+                            cd ${WORKSPACE}/${LIBRARY_PATH} && \
+                            (rm -rf .git || true) && \
+                            git init && \
+                            git add --all && \
+                            git commit -m 'init'
+                        """
+
+                        // Get the path of the temporary Git repository
+                        def repoPath = sh(returnStdout: true, script: 'pwd').trim() + "/${LIBRARY_PATH}"
+
+                        // Shared Library Registration
+                        sharedLib = library identifier: 'local-lib@master',
+                                retriever: modernSCM([$class: 'GitSCMSource', remote: "${repoPath}"]),
+                                changelog: false
+                        echo 'Successfully loaded shared library'
+                    } catch (Exception e) {
+                        echo "Failed to load shared library: ${e.message}"
+                        error('Shared Library Loading Failed')
+                    }
+                }
+            }
+        }
         // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management),
         // Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
@@ -67,25 +100,28 @@ pipeline {
                         // print jenkins env configurations
                         sh 'env'
                         try {
+                            // Load the necessary packages
+                            resultStatus = sharedLib.resource.ResultStatus
+
                             generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                             unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+
+                            if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
+                                echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
+                                currentBuild.result = resultStatus.BUILD_STATUS.ABORTED
+                                error('Branch is up to date, no changes.')
+                            }
+
+                            COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+
+                            generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
+
+                            generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
+
+                            generalUtil.mergeBranchIfNeeded()
                         } catch (Exception e) {
-                            error "Failed to load Groovy scripts: ${e.message}"
+                            error "Failed for Prepare WORKSPACE: ${e.message}"
                         }
-
-                        if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
-                            echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
-                            currentBuild.result = 'ABORTED'
-                            error('Branch is up to date, no changes.')
-                        }
-
-                        COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
-
-                        generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
-
-                        generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
-
-                        generalUtil.mergeBranchIfNeeded()
                     }
                 }
 
@@ -140,10 +176,10 @@ pipeline {
                                 """
                             }
 
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
                             error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
                         }
-                        }
+                    }
                     else {
                         echo """ Parameters for Python Pass: \\
                             \'${env.WORKSPACE}/python/linting_error_report.py\' \\

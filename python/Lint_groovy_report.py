@@ -50,6 +50,7 @@ def process_annotations(report_data, search_path, external_ids):
             print(f"File not found in project: {file_path}")
             continue
         relative_path = relative_path.replace("\\", "/")
+        
         for error in file_data.get("errors", []):
             line_number = error.get("line")
             rule = error.get("rule", "")

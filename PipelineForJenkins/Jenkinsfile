@@ -1,4 +1,6 @@
 def generalUtil
+def sharedLib // Use this variable to store the shared library, work as import statement
+def resultStatus // Use this variable to store the package of result status, work as import statement
 
 pipeline {
     agent any
@@ -54,33 +56,78 @@ pipeline {
         /* groovylint-enable DuplicateStringLiteral */
         PATH = "${JAVA_HOME}/bin:${GROOVY_HOME}/bin:${PATH}"
         JOB_REPO = "${PR_REPO_HTML}"
+
+        // Environmental variables for static analysis
+        SONARQUBE_SERVER = 'SonarServer'
+        SONARQUBE_SCANNER = 'sonarqube-scanner'
+        SONAR_PROJECT_KEY = "${env.JOB_NAME.split('/')[0]}-PR"
     }
 
     stages {
+        stage('Load Shared Library') {
+            steps {
+                script {
+                    try {
+                        def LIBRARY_PATH = 'sharedLibraries'
+                        echo "Loading local shared library from ${WORKSPACE}/${LIBRARY_PATH}"
+
+                        // Create temporary Git repository
+                        sh """
+                            cd ${WORKSPACE}/${LIBRARY_PATH} && \
+                            (rm -rf .git || true) && \
+                            git init && \
+                            git add --all && \
+                            git commit -m 'init'
+                        """
+
+                        // Get the path of the temporary Git repository
+                        def repoPath = sh(returnStdout: true, script: 'pwd').trim() + "/${LIBRARY_PATH}"
+
+                        // Shared Library Registration
+                        sharedLib = library identifier: 'local-lib@master',
+                                retriever: modernSCM([$class: 'GitSCMSource', remote: "${repoPath}"]),
+                                changelog: false
+                        echo 'Successfully loaded shared library'
+                    } catch (Exception e) {
+                        echo "Failed to load shared library: ${e.message}"
+                        error('Shared Library Loading Failed')
+                    }
+                }
+            }
+        }
         stage('Prepare Workspace') {
             steps {
                 script {
                     dir("${PROJECT_DIR}") {
-                        echo 'Preparing the workspace...'
-                        generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                        try {
+                            // Load the necessary packages
+                            resultStatus = sharedLib.resource.ResultStatus
 
-                        if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
-                            echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
-                            currentBuild.result = 'ABORTED'
-                            error('Branch is up to date, no changes.')
-                        }
+                            echo 'Preparing the workspace...'
+                            generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
 
-                        COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+                            if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
+                                echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
+                                currentBuild.result = resultStatus.BUILD_STATUS.ABORTED
+                                error('Branch is up to date, no changes.')
+                            }
 
-                        // This sets environment variables for TICKET_NUMBER and FOLDER_NAME
-                        generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
+                            COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
 
-                        echo 'Cloning or updating repository...'
-                        generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, params.PR_BRANCH)
+                            // This sets environment variables for TICKET_NUMBER and FOLDER_NAME
+                            generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
 
-                        echo "Checking out branch ${params.PR_BRANCH}..."
-                        dir(PROJECT_DIR) {
-                            generalUtil.checkoutBranch(PROJECT_DIR, params.PR_BRANCH)
+                            echo 'Cloning or updating repository...'
+                            generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, params.PR_BRANCH)
+
+                            echo "Checking out branch ${params.PR_BRANCH}..."
+                            dir(PROJECT_DIR) {
+                                generalUtil.checkoutBranch(PROJECT_DIR, params.PR_BRANCH)
+                            }
+                        } catch (Exception e) {
+                            echo "Error in Prepare Workspace stage: ${e.getMessage()}"
+                            currentBuild.result = resultStatus.BUILD_STATUS.FAILURE
+                            error("Workspace preparation failed: ${e.getMessage()}")
                         }
                     }
                 }
@@ -103,6 +150,7 @@ pipeline {
                                 echo "Linting Groovy scripts in ${PROJECT_DIR}/groovy ..."
                                 npm-groovy-lint \\
                                     --failon error \\
+                                    --no-parse \\
                                     --output groovy-lint-report.json \\
                                     --config ${PROJECT_DIR}/.groovylintrc.groovy.json \\
                                     ${PROJECT_DIR}/groovy
@@ -123,7 +171,7 @@ pipeline {
                         """.stripIndent()
 
                         // Mark the stage as failed but let the pipeline continue if desired
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
                             error("Groovy linting failed (exit code ${exitCodeGroovy})")
                         }
                     }
@@ -138,6 +186,7 @@ pipeline {
                                 echo "Linting Jenkinsfiles in DLXJenkins, JsJenkins, PipelineForJenkins ..."
                                 npm-groovy-lint \\
                                     --failon error \\
+                                    --no-parse \\
                                     --output jenkins-lint-report.json \\
                                     --config ${PROJECT_DIR}/.groovylintrc.jenkins.json \\
                                     ${PROJECT_DIR}/DLXJenkins \\
@@ -158,8 +207,8 @@ pipeline {
                             ${COMMIT_HASH} \
                             Fail '${PROJECT_DIR}'
                         """.stripIndent()
-                        //groovylint-disable-next-line DuplicateMapLiteral, DuplicateStringLiteral
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
                             error("Jenkinsfile linting failed (exit code ${exitCodeJenkins})")
                         }
                     } else {
@@ -207,10 +256,13 @@ pipeline {
                 }
             }
         }
+
         stage('Run Unit Tests') {
             steps {
                 script {
-                    sh 'gradle test'
+                    sh """
+                    gradle test -PsharedLibraryDir=${env.WORKSPACE}/sharedLibraries
+                    """
                 }
             }
         }
@@ -221,13 +273,60 @@ pipeline {
                 }
             }
         }
+        // Runs static code analysis using SonarQube installed in Jenkins virtual machine.
+        stage('Static Analysis') {
+            steps {
+                dir("${PROJECT_DIR}") {
+                    pwd()
+                    script {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            String scannerHome = tool SONARQUBE_SCANNER
+                            echo "SonarQube scanner located at: ${scannerHome}"
+
+                            withSonarQubeEnv(SONARQUBE_SERVER) {
+                                String sonarCommand = "\"${scannerHome}/bin/sonar-scanner\" " +
+                            "\"-Dsonar.projectKey=${env.SONAR_PROJECT_KEY}\" " +
+                            '\"-Dsonar.host.url=http://localhost:9000/sonarqube\" ' +
+                            '\"-Dsonar.sources=.\" ' +
+                            '\"-Dsonar.log.level=DEBUG\" ' +
+                            '\"-Dsonar.verbose=true\" ' +
+                            '\"-Dsonar.lang.patterns.grvy="**/*.groovy,**/Jenkinsfile,**/JenkinsfileDeployment"\" ' +
+                            '\"-Dsonar.exclusions=**/python/log-template/logs.html,**/Builder.cs,**/build.gradle,**/Bash/**\" ' +
+                            '\"-Dsonar.python.version=3.10\"'
+
+                                echo "Executing SonarQube scanner with command: ${sonarCommand}"
+                                sh sonarCommand
+                            }
+                        }
+                    }
+                }
+
+                withCredentials([string(credentialsId: 'SonarQube', variable: 'SONAR_QUBE_AUTH_TOKEN')]) {
+                    script {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            Map status = generalUtil.checkQualityGateStatus(SONAR_PROJECT_KEY, env.SONAR_QUBE_AUTH_TOKEN)
+
+                            final String STATUS_OK = 'OK'
+
+                            if ((status.entireCodeStatus != STATUS_OK) || (status.newCodeStatus != STATUS_OK)) {
+                                echo "Entire Code Status: ${status.entireCodeStatus}, New Code Status: ${status.newCodeStatus}"
+                                error('Quality gate failed!')
+                            } else {
+                                echo 'Quality gate passed!'
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     post {
         always {
             script {
                 echo 'Cleaning up the workspace...'
-            // deleteDir() this is commented out for now, but in future we can do clean up if needed
+                currentBuild.description = "${PR_BRANCH}"
+                // deleteDir() this is commented out for now, but in future we can do clean up if needed
             }
         }
         success {

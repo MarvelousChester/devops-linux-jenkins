@@ -1,9 +1,9 @@
-/* groovylint-disable NglParseError */
-
-import groovy.json.JsonSlurper
+#!groovy
+import static resource.ResultStatus.STAGE_STATUS
+import static resource.ResultStatus.BUILD_STATUS
 import hudson.FilePath
+import groovy.json.JsonSlurper
 
-// constants for stage names
 // groovylint-disable VariableName, UnusedVariable
 this.EDIT_MODE = 'EditMode'
 this.PLAY_MODE = 'PlayMode'
@@ -22,18 +22,6 @@ this.RIDER     = 'Rider'
  */
 void sendTestReport(workspace, reportDir, commitHash) {
     sh "python \'${workspace}/python/create_bitbucket_test_report.py\' \'${commitHash}\' \'${reportDir}\'"
-}
-
-/**
- * Parses a log file to identify errors using a Python script.
- * This function calls a helper Python script to analyze the specified log file
- * and returns the output from the script.
- *
- * @param logPath The path to the log file that needs to be analyzed for errors.
- * @return The output from the Python script, which contains the analysis results.
- */
-String parseLogsForError(logPath) {
-    return sh(script: "python \'${workspace}/python/get_unity_failure.py\' \'${logPath}\'", returnStdout: true)
 }
 
 /**
@@ -103,16 +91,20 @@ void runUnityStage(String stageName, String errorMessage) {
         echo "Stack trace: ${e.getStackTrace().join('\n')}"
         error "${errorMessage}: ${e.message}"
     }
+
     // Check the exit code and handle success/failure
-    if (exitCode != 0 && CI_PIPELINE == 'true') {
-        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+    if (exitCode == 0) {
+        // Success case
+        echo "${stageName} completed successfully."
+    } else {
+        // Failure case: Handle based on CI_PIPELINE value
+        if (CI_PIPELINE.toBoolean()) {
+            catchError(buildResult: BUILD_STATUS.SUCCESS, stageResult: STAGE_STATUS.FAILURE) {
+                error("${stageName} Unity batch mode failed with exit code: ${exitCode}, but build will continue.")
+            }
+        } else {
             error("${stageName} Unity batch mode failed with exit code: ${exitCode}")
         }
-    } else if (exitCode != 0 && CI_PIPELINE != 'true') {
-        error("${stageName} Unity batch mode failed with exit code: ${exitCode}")
-    }
-    else {
-        echo "${stageName} completed successfully."
     }
 }
 
@@ -125,7 +117,7 @@ void runUnityStage(String stageName, String errorMessage) {
  * @param stageName The name of the stage to execute (e.g., "EditMode", "PlayMode").
  * @return int The exit code of the Unity batch mode process.
  */
- // groovylint-disable-next-line MethodSize
+// groovylint-disable-next-line MethodSize
 int runUnityBatchMode(String unityExecutable, String projectDirectory, String reportDirectory, String stageName) {
     String batchModeBaseCommand = '' // Base command for Unity batch mode in any stage
     String logFilePath = '' // Path to the log file
@@ -144,8 +136,8 @@ int runUnityBatchMode(String unityExecutable, String projectDirectory, String re
      * @param stage The stage name (e.g., "EditMode", "PlayMode").
      */
     Closure setLogFilePathAndUrl = { String prBranch, String reportDir, String stage ->
-    // groovylint-disable-next-line DuplicateStringLiteral
-        String jobName = CI_PIPELINE == 'true' ? 'PRJob' : 'DeploymentJob'
+        // groovylint-disable-next-line DuplicateStringLiteral
+        String jobName = CI_PIPELINE ? 'PRJob' : 'DeploymentJob'
 
         Map logConfig = [
             (EDIT_MODE): [

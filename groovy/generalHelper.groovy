@@ -1,3 +1,24 @@
+#!groovy
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+
+/**
+ * A helper method for logging messages. If the script is running in a Jenkins pipeline,
+ * it will use the 'echo' step; otherwise, it falls back to println.
+ *
+ * @param String message        The message to log/print
+ */
+void logMessage(String message) {
+    try {
+        // If running in Jenkins and 'echo' is available, use it
+        echo message
+    } catch (MissingMethodException e) {
+        // Otherwise, fallback to standard output
+        //groovylint-disable-next-line Println
+        println message
+    }
+}
+
 /**
  * Clones or updates a Git repository in the specified directory.
  * If the project directory does not exist or does not contain the expected project type,
@@ -297,7 +318,7 @@ void publishTestResultsHtmlToWebServer(
     && sudo chmod -R 755 /var/www/html/${remoteProjectFolderName}/Reports \""""
 
     sh "scp -i ${env.SSH_KEY} -rp ${reportDir}/* ${env.DLX_WEB_HOST_URL}:${destinationDir}"
-}
+    }
 
 /**
  * Publishes WebGL build and build_project.log to a remote web server.
@@ -460,6 +481,120 @@ void closeLogfiles(String branchPath) {
 }
 
 /**
+ * Retrieves the quality gate status for a project and a specific build from the SonarQube server.
+ *
+ * - The <strong>project quality gate</strong> evaluates the entire project
+ * to determine whether it meets the quality gate standards.
+ * Thus, the project quality gate status reflects the overall quality of the entire project.
+ * - The <strong>build quality gate</strong>evaluates only the changed code in the PR branch
+ * to ensure it meets the quality gate standards.
+ * Therefore, the build quality gate status reflects the quality of the changes in the PR.
+ *
+ * @param String projectKey The key (identifier) of the SonarQube project.
+ * @param String adminToken The admin user's authentication token.
+ * @return Map
+ * A map containing the quality gate statuses:
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - entireCodeStatus: The status of the entire project (e.g., "OK", "WARN", "ERROR").
+ * <br>&nbsp;&nbsp;&nbsp;&nbsp; - newCodeStatus   : The status of the changed code in the PR branch. <br>
+ * <br>
+ * Returns `null` if the quality gate status cannot be retrieved.
+ */
+Map checkQualityGateStatus(String projectKey, String adminToken) {
+    // API for getting the status of the entire project
+    // The response includes a building queue
+    String buildStatusURL = "http://localhost:9000/sonarqube/api/ce/component?component=${projectKey}"
+    String qualityGateResultURL = "http://localhost:9000/sonarqube/api/qualitygates/project_status?projectKey=${projectKey}"
+
+    // Try maximum five times to retrieve project quality gate status from SonarQube
+    int maxRetries = 5
+    String buildStatusAPIcall = "curl -u ${adminToken}: ${buildStatusURL}"
+
+    // Retry loop to handle IN_PROGRESS status or transient failures
+    for (int retryCount = 1; retryCount <= maxRetries; retryCount++) {
+        logMessage('--------------------------------------------------------------------------------------------------')
+        logMessage("Send an HTTP GET request to SonarQube Server using ${buildStatusURL}")
+
+        // Execute the HTTP GET request
+        def process = buildStatusAPIcall.execute()
+        process.waitFor()
+
+        // Check whether HTTP request was successfully executed or not
+        if (process.exitValue() != 0) {
+            logMessage("HTTP request failed with exit code: ${process.exitValue()}")
+            break
+        }
+
+        // Store HTTP response as a String and transfer it to a Map
+        String buildStatusResponse = process.text
+        def buildStatus = new JsonSlurperClassic().parseText(buildStatusResponse)
+
+        // Print the response in a pretty format
+        def prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(buildStatus))
+        logMessage(prettyJson)
+
+        // Check whether the Quality Gate is still processing or not
+        if (buildStatus?.queue?.size() > 0) {
+            logMessage('Code Analysis is still in progress...')
+
+            // Free the LazyMap and process object to avoid serialization issues
+            process = null
+            buildStatus = null
+
+            // Sleep for 10 seconds before retrying
+            sleep(10)
+            continue
+        }
+
+        // If the queue is empty, analysis is complete
+        logMessage('Code Analysis is complete or no queue data.')
+        logMessage('Checking the analysis status of the overall code...')
+
+        // Check whether 'current' has a valid status
+        if (buildStatus?.current?.status) {
+            logMessage("The status of project analysis is ${buildStatus.current.status}")
+
+            // Create analysis status API request form
+            String qualityGateResultAPIcall = "curl -u ${adminToken}: ${qualityGateResultURL}"
+            logMessage('---------------------------------------------------------------------------------------------------')
+            logMessage("Send an HTTP GET request to SonarQube Server using ${qualityGateResultURL}")
+
+            // Execute the HTTP GET request for Quality Gate results
+            def newProcess = qualityGateResultAPIcall.execute()
+            newProcess.waitFor()
+
+            // Check whether HTTP request was successfully executed or not
+            if (newProcess.exitValue() != 0) {
+                logMessage("HTTP request failed with exit code: ${newProcess.exitValue()}")
+                break
+            }
+
+            // Store HTTP response as a String and transfer it to a Map
+            String qualityGateResultResponse = newProcess.text
+            def qualityGateResult = new JsonSlurperClassic().parseText(qualityGateResultResponse)
+
+            // Print the response in a pretty format
+            prettyJson = JsonOutput.prettyPrint(JsonOutput.toJson(qualityGateResult))
+            logMessage(prettyJson)
+
+            // Check analysis status of new code
+            if (qualityGateResult?.projectStatus?.conditions?.size() > 0) {
+                def firstCondition = qualityGateResult.projectStatus.conditions[0] // Access the first condition safely
+                logMessage("Analysis status of entire code is ${qualityGateResult.projectStatus.status}")
+                logMessage("Analysis status of new code is ${firstCondition?.status ?: 'Unknown'}")
+
+                // Exit the function after successfully processing the Quality Gate results
+                return [entireCodeStatus: qualityGateResult.projectStatus.status, newCodeStatus: firstCondition.status]
+            }
+        }
+    }
+
+    // If retries are exhausted, log a message
+    logMessage('Max retries reached. Status may still be IN_PROGRESS.')
+    // groovylint-disable-next-line ReturnsNullInsteadOfEmptyCollection
+    return null
+}
+
+/**
  * Publishes GroovyDoc HTML reports to a remote web server.
  * The function creates the necessary directories on the server, adjusts permissions,
  * uploads the reports using SSH and SCP, and then recursively updates permissions
@@ -492,6 +627,6 @@ void publishGroovyDocToWebServer(
     sh """ssh -i ${env.SSH_KEY} ${env.DLX_WEB_HOST_URL} \\
     "find /var/www/html/Jenkins/ -type d -exec sudo chmod 755 {} \\; && \\
      find /var/www/html/Jenkins/ -type f -exec sudo chmod 644 {} \\;" """
-}
+    }
 
 return this

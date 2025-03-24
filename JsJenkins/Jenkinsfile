@@ -1,5 +1,7 @@
 def generalUtil
 def jsUtil
+def sharedLib // Use this variable to store the shared library, work as import statement
+def resultStatus // Use this variable to store the package of result status, work as import statement
 
 pipeline {
     agent any
@@ -58,6 +60,37 @@ pipeline {
     }
 
     stages {
+        stage('Load Shared Library') {
+            steps {
+                script {
+                    try {
+                        def LIBRARY_PATH = 'sharedLibraries'
+                        echo "Loading local shared library from ${WORKSPACE}/${LIBRARY_PATH}"
+
+                        // Create temporary Git repository
+                        sh """
+                            cd ${WORKSPACE}/${LIBRARY_PATH} && \
+                            (rm -rf .git || true) && \
+                            git init && \
+                            git add --all && \
+                            git commit -m 'init'
+                        """
+
+                        // Get the path of the temporary Git repository
+                        def repoPath = sh(returnStdout: true, script: 'pwd').trim() + "/${LIBRARY_PATH}"
+
+                        // Shared Library Registration
+                        sharedLib = library identifier: 'local-lib@master',
+                                retriever: modernSCM([$class: 'GitSCMSource', remote: "${repoPath}"]),
+                                changelog: false
+                        echo 'Successfully loaded shared library'
+                    } catch (Exception e) {
+                        echo "Failed to load shared library: ${e.message}"
+                        error('Shared Library Loading Failed')
+                    }
+                }
+            }
+        }
         // Prepare WORKSPACE: Environment Setup, WORKSPACE Preparation(Branch Management),
         //  Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
@@ -67,12 +100,16 @@ pipeline {
                     script {
                         // print jenkins env configurations
                         sh 'env'
+
+                        // Load the necessary packages
+                        resultStatus = sharedLib.resource.ResultStatus
+
                         generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
                         jsUtil = load("${env.WORKSPACE}/groovy/jsHelper.groovy")
 
                         if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH)) {
-                            echo "Current branch is up-to-date with origin/${destinationBranch}. Aborting pipeline."
-                            currentBuild.result = 'ABORTED'
+                            echo 'Current branch is up-to-date with origin/${destinationBranch}. Aborting pipeline.'
+                            currentBuild.result = resultStatus.BUILD_STATUS.ABORTED
                             error('Branch is up to date, no changes.')
                         }
 
@@ -244,7 +281,7 @@ pipeline {
             steps {
                 dir("${PROJECT_DIR}") {
                     script {
-                        sh 'pwd'
+                        pwd()
                         String scannerHome = tool SONARQUBE_SCANNER
                         echo "SonarQube scanner located at: ${scannerHome}"
 
@@ -262,13 +299,15 @@ pipeline {
                 }
                 withCredentials([string(credentialsId: 'SonarQube', variable: 'SONAR_QUBE_AUTH_TOKEN')]) {
                     script {
-                        Map status = jsUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
+                        Map status = generalUtil.checkQualityGateStatus(SONAR_PROJECT_KEY , env.SONAR_QUBE_AUTH_TOKEN)
 
-                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                            // groovylint-disable-next-line DuplicateStringLiteral
-                            if ((status.entireCodeStatus != 'OK') && (status.newCodeStatus != 'OK')) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            final String STATUS_OK = 'OK'
+
+                            if ((status.entireCodeStatus != STATUS_OK) || (status.newCodeStatus != STATUS_OK)) {
+                                echo "Entire Code Status: ${status.entireCodeStatus}, New Code Status: ${status.newCodeStatus}"
                                 error('Quality gate failed!')
-                        } else {
+                            } else {
                                 echo 'Quality gate passed!'
                             }
                         }
