@@ -180,8 +180,24 @@ pipeline {
                 }
                 script {
                     echo 'Linting step'
-                    // Set the deploymentBuild argument as "false" for now
-                    jsUtil.executeLintingInTestingDirs(env.TEST_DIRECTORIES, false)
+
+                    // Run the client-side lint test
+                    echo "Run ${params.CLIENT_SOURCE_FOLDER} lint test"
+                    int clientLintTestResult = jsUtil.runLintTest("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}")
+                    if (clientLintTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.CLIENT_SOURCE_FOLDER}'s lint test failed with exit code: ${clientLintTestResult}")
+                        }
+                    }
+
+                    // Run the server-side lint test
+                    echo "Run ${params.SERVER_SOURCE_FOLDER} lint test"
+                    int serverLintTestResult = jsUtil.runLintTest("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}")
+                    if (serverLintTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.SERVER_SOURCE_FOLDER}'s lint test failed with exit code: ${serverLintTestResult}")
+                        }
+                    }
                 }
             }
         }
@@ -191,9 +207,20 @@ pipeline {
             steps {
                 script {
                     echo 'Unit testing step'
-                    echo 'Run unit testing in testing directories'
-                    // Set the deploymentBuild argument as "false" for now
-                    jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false)
+
+                    // Run the client-side unit tests
+                    echo "Run ${params.CLIENT_SOURCE_FOLDER} unit test"
+                    int clientUnitTestResult = jsUtil.runUnitTest("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}")
+                    if (clientUnitTestResult != 0) {
+                        error("${params.CLIENT_SOURCE_FOLDER}'s unit test failed with exit code: ${clientUnitTestResult}")
+                    }
+
+                    // Run the server-side unit tests
+                    echo "Run ${params.SERVER_SOURCE_FOLDER} unit test"
+                    int serverUnitTestResult = jsUtil.runUnitTest("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}")
+                    if (serverUnitTestResult != 0) {
+                        error("${params.SERVER_SOURCE_FOLDER}'s unit test failed with exit code: ${serverUnitTestResult}")
+                    }
 
                     // Change back to default directory
                     // groovylint-disable-next-line DuplicateStringLiteral
@@ -305,8 +332,7 @@ pipeline {
                         // Check whether the server version in up-to-date
                         catchError(buildResult: resultStatus.BUILD_STATUS.UNSTABLE, stageResult: resultStatus.STAGE_STATUS.UNSTABLE) {
                             if (!jsUtil.versionCompare(server_latest_version, project_server_version)) {
-                                warnError('Server version is not up to date. Skipping the deployment process.')
-                                currentBuild.result = resultStatus.BUILD_STATUS.UNSTABLE
+                                error('Server version is not up to date. Skipping the deployment process.')
                                 return // Skip server deployment process
                             }
                             echo 'Server version is up-to-date. Proceeding with deployment.'
@@ -380,8 +406,7 @@ pipeline {
                         // Check whether the client version in up-to-date
                         catchError(buildResult: resultStatus.BUILD_STATUS.UNSTABLE, stageResult: resultStatus.STAGE_STATUS.UNSTABLE) {
                             if (!jsUtil.versionCompare(client_latest_version, project_client_version)) {
-                                warnError('Client version is not up to date. Skipping the deployment process.')
-                                currentBuild.result = resultStatus.BUILD_STATUS.UNSTABLE
+                                error('Client version is not up to date. Skipping the deployment process.')
                                 return // Skip client deployment process
                             }
                             echo 'Client version is up-to-date. Proceeding with deployment.'

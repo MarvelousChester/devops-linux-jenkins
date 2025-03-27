@@ -3,6 +3,7 @@ package resource
 class ResultStatus {
     static final Map<String, String> STAGE_STATUS = [
         'SUCCESS': 'SUCCESS',
+        'UNSTABLE': 'UNSTABLE',
         'FAILURE': 'FAILURE',
         'ABORTED': 'ABORTED',
         'SKIPPED': 'SKIPPED'

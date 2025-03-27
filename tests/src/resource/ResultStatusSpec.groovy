@@ -8,6 +8,7 @@ class ResultStatusTest extends Specification {
         given: 'Expected STAGE_STATUS map'
         def expectedStageStatus = [
             'SUCCESS': 'SUCCESS',
+            'UNSTABLE': 'UNSTABLE',
             'FAILURE': 'FAILURE',
             'ABORTED': 'ABORTED',
             'SKIPPED': 'SKIPPED'
@@ -18,7 +19,7 @@ class ResultStatusTest extends Specification {
 
         then: 'The map should match the expected values'
         actualStageStatus == expectedStageStatus
-        actualStageStatus.size() == 4 // Ensure the map has exactly 4 entries
+        actualStageStatus.size() == 5 // Ensure the map has exactly 5 entries
     }
 
     def "BUILD_STATUS map should have correct key-value pairs"() {

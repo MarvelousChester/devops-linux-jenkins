@@ -183,10 +183,10 @@ def extract_failure_details(file_path, project_type, debug=False):
                             line_number = int(match.group(2))  # Error occurred line number
 
                         # Change absolute path to relative path so that Bitbucket properly points to the source code
-                        if project_type in source_file:  # Check if the source_file path contains the project_type (e.g., client or server)
-                            source_file = source_file.split(project_type, 1)[-1]  # Get only the part after project_type
+                        if project_type in source_file:                                          # Check if the source_file path contains the project_type (e.g., client or server)
+                            source_file = source_file.split(project_type, 1)[-1]                 # Get only the part after project_type
                             source_file = os.path.join(project_type, source_file.lstrip('\\/'))  # Remove / or \(backslash) from the front of the path
-                            source_file = source_file.replace('\\', '/')  # Replace backslashes with forward slashes
+                            source_file = source_file.replace('\\', '/')                         # Replace backslashes with forward slashes
 
                         # Store data
                         failed_tests_info.append({

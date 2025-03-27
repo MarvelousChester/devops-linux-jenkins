@@ -156,7 +156,24 @@ pipeline {
                 }
                 script {
                     echo 'Linting step'
-                    jsUtil.executeLintingInTestingDirs(env.TEST_DIRECTORIES, false)
+
+                    // Run the client-side lint test
+                    echo "Run ${params.CLIENT_SOURCE_FOLDER} lint test"
+                    int clientLintTestResult = jsUtil.runLintTest("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}")
+                    if (clientLintTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.CLIENT_SOURCE_FOLDER}'s lint test failed with exit code: ${clientLintTestResult}")
+                        }
+                    }
+
+                    // Run the server-side lint test
+                    echo "Run ${params.SERVER_SOURCE_FOLDER} lint test"
+                    int serverLintTestResult = jsUtil.runLintTest("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}")
+                    if (serverLintTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.SERVER_SOURCE_FOLDER}'s lint test failed with exit code: ${clientLintTestResult}")
+                        }
+                    }
                 }
             }
         }
@@ -166,12 +183,26 @@ pipeline {
             steps {
                 script {
                     echo 'Unit testing step'
-                    echo 'Run unit testing in testing directories'
-                    jsUtil.runUnitTestsInTestingDirs(env.TEST_DIRECTORIES, false)
 
-                    // Change back to default directory
+                    // Run the client-side unit tests
+                    echo "Run ${params.CLIENT_SOURCE_FOLDER} unit test"
+                    int clientUnitTestResult = jsUtil.runUnitTest("${PROJECT_DIR}/${params.CLIENT_SOURCE_FOLDER}")
+                    if (clientUnitTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.CLIENT_SOURCE_FOLDER}'s unit test failed with exit code: ${clientUnitTestResult}")
+                        }
+                    }
+
+                    // Run the server-side unit tests
+                    echo "Run ${params.SERVER_SOURCE_FOLDER} unit test"
+                    int serverUnitTestResult = jsUtil.runUnitTest("${PROJECT_DIR}/${params.SERVER_SOURCE_FOLDER}")
+                    if (serverUnitTestResult != 0) {
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("${params.SERVER_SOURCE_FOLDER}'s unit test failed with exit code: ${serverUnitTestResult}")
+                        }
+                    }
+
                     // groovylint-disable-next-line DuplicateStringLiteral
-                    sh(script: 'cd "' + env.WORKSPACE + '"')
                 }
 
                 script {

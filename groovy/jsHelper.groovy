@@ -1,7 +1,3 @@
-#!groovy
-import static resource.ResultStatus.STAGE_STATUS
-import static resource.ResultStatus.BUILD_STATUS
-
 /**
  * A helper method for logging messages. If the script is running in a Jenkins pipeline,
  * it will use the 'echo' step; otherwise, it falls back to println.
@@ -120,51 +116,79 @@ void installNpmInTestingDirs(String testingDirs) {
 }
 
 /**
- * Runs unit tests in the specified testing directories using npm.
- * This function iterates over the provided directories, runs `npm run test` in each,
- * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort
- * on test failures.
+ * Runs linting in the specified directory using npm.
+ * This function checks whether the target directory and its package.json file exist,
+ * then executes `npm run lint` using the --prefix option.
+ * It returns the exit code from the lint command (0 for success, non-zero for failure).
  *
- * @param testingDirs A comma-separated string of directory paths where unit tests should be executed.
- *                    If null or empty, the function will exit without performing any operations.
- * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on test failure.
- *                        If true, the pipeline will halt when a test fails; otherwise, it will continue.
+ * @param testDir The path to the directory where linting should be executed.
+ *                If the directory or its package.json file does not exist, the function returns -1.
+ * @return The exit code from the lint execution.
  */
-void runUnitTestsInTestingDirs(String testingDirs, boolean deploymentBuild) {
-    if (testingDirs == null || testingDirs.isEmpty()) {
-        //groovylint-disable-next-line DuplicateStringLiteral
-        echo "Testing directories don't exist."
-        return
+int runLintTest(String testDir) {
+    // Check whether testDir exists
+    def dirExists = (sh( script: "[ -d '${testDir}' ]", returnStatus: true ) == 0)
+    if (!dirExists) {
+        echo "Directory ${testDir} does not exist."
+        return -1
     }
 
-    // Split testingDirs into a list of directories
-    //groovylint-disable-next-line DuplicateStringLiteral
-    List<String> testDirs = testingDirs.split(',') as List<String>
-
-    for (String dirPath : testDirs) {
-        // Check if the directory exists
-        File dir = new File(dirPath)
-        if (!dir.exists() || !dir.isDirectory()) {
-            echo "Directory does not exist: ${dirPath}. Skipping..."
-            continue
-        }
-
-        echo "Currently working on ${dirPath} directory."
-
-        // Construct the test command
-        String testCommand = "cd ${dirPath} && npm run test"
-        echo "Running command: ${testCommand}"
-
-        // Run the unit testing command and capture the exit code
-        int exitCode = runCommandReturnStatus(testCommand) // Run Jest unit testing
-        if (exitCode != 0) {
-            echo "npx jest failed with exit code: ${exitCode}."
-            if (deploymentBuild) {
-                error("npx jest failed with exit code: ${exitCode}. Aborting the deployment pipeline...")
-            }
-            continue
-        }
+    // Check whether package.json exists in testDir
+    def pkgExists = (sh( script: "[ -f '${testDir}/package.json' ]", returnStatus: true ) == 0)
+    if (!pkgExists) {
+        echo "package.json not found in ${testDir}."
+        return -1
     }
+
+    // Run lint command
+    String lintCommand = "npm --prefix '${testDir}' run lint"
+    int exitCode = sh(script: lintCommand, returnStatus: true)
+
+    if (exitCode == 0) {
+        echo "Linting completed successfully for \"${testDir}\""
+    } else {
+        echo "Linting failed with exit code ${exitCode}"
+    }
+
+    return exitCode
+}
+
+/**
+ * Runs unit tests in the specified directory using npm.
+ * This function checks if the target directory and its package.json file exist,
+ * then executes `npm run test` using the --prefix option.
+ * It returns the exit code from the test command (0 for success, non-zero for failure).
+ *
+ * @param testDir The path to the directory where unit tests should be executed.
+ *                If the directory or its package.json file does not exist, the function returns -1.
+ * @return The exit code from the test execution.
+ */
+int runUnitTest(String testDir) {
+    // Check whether testDir exists
+    def dirExists = (sh( script: "[ -d '${testDir}' ]", returnStatus: true ) == 0)
+    if (!dirExists) {
+        echo "Directory ${testDir} does not exist."
+        return -1
+    }
+
+    // Check whether package.json exists in testDir
+    def pkgExists = (sh( script: "[ -f '${testDir}/package.json' ]", returnStatus: true) == 0)
+    if (!pkgExists) {
+        echo "package.json not found in ${testDir}."
+        return -1
+    }
+
+    // Run unit test
+    String testCommand = "npm --prefix '${testDir}' run test"
+    int exitCode = sh(script: testCommand, returnStatus: true)
+
+    if (exitCode == 0) {
+        echo "Unit test success with exit code ${exitCode}"
+    } else {
+        echo "Unit test failed with exit code ${exitCode}"
+    }
+
+    return exitCode
 }
 
 /**
@@ -201,52 +225,6 @@ int runCommandReturnStatus(command, String workingDir = '.') {
     }
     //Windows must use bat otherwise issues are caused when calling node and npm
     return bat(script: command, returnStatus: true)
-}
-
-/**
- * Executes linting in the specified testing directories using npm.
- * This function iterates through the given directories, runs `npm run lint` in each,
- * and handles errors gracefully. If `deploymentBuild` is true, the pipeline will abort
- * on linting failures.
- *
- * @param testingDirs A comma-separated string of directory paths where linting should be executed.
- *                    If null or empty, the function will exit without performing any operations.
- * @param deploymentBuild A boolean flag indicating whether the pipeline should abort on linting failure.
- *                        If true, the pipeline will halt when linting fails; otherwise, it will continue.
- */
-void executeLintingInTestingDirs(String testingDirs, boolean deploymentBuild) {
-    if (testingDirs == null || testingDirs.isEmpty()) {
-        //groovylint-disable-next-line DuplicateStringLiteral
-        echo "Testing directories don't exist."
-        return
-    }
-
-    // Split testingDirs into a list of directories
-    //groovylint-disable-next-line DuplicateStringLiteral
-    List<String> testDirs = testingDirs.split(',') as List<String>
-
-    for (String dirPath : testDirs) {
-        // Extract the directory name for logging
-        String dirName = dirPath.split('\\\\')[-1]
-        echo "Currently working on ${dirName} directory."
-
-        // Error handling for lint command execution
-        catchError(buildResult: BUILD_STATUS.SUCCESS, stageResult: STAGE_STATUS.FAILURE) {
-            // Construct the lint command
-            String lintCommand = "cd ${dirPath} && npm run lint"
-            int exitCode = sh(script: lintCommand, returnStatus: true)
-
-            // Handle linting results
-            if (exitCode == 0) {
-                echo "Linting completed successfully for \"${dirPath}\""
-            } else {
-                echo "Linting failed with exit code ${exitCode}."
-                if (deploymentBuild) {
-                    error("Linting failed with exit code ${exitCode}. Aborting the deployment pipeline...")
-                }
-            }
-        }
-    }
 }
 
 /**
