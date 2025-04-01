@@ -91,7 +91,7 @@ pipeline {
         stage('Load Shared Library') {
             steps {
                 script {
-
+                    loadSharedLibrary()
                 }
             }
         }
