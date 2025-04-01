@@ -1,8 +1,11 @@
 def pass = 'Pass'
 def fail = 'Fail'
-def generalUtil
-def unityUtil
 def sharedLib
+@Field
+def generalUtil
+@Field
+def unityUtil
+@Field
 def resultStatus
 
 
