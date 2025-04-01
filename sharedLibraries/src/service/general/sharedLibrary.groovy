@@ -26,3 +26,5 @@ def loadSharedLibrary() {
         error('Shared Library Loading Failed')
     }
 }
+
+return this
