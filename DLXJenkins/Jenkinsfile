@@ -73,7 +73,9 @@ pipeline {
         // Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
-                sharedLib.workspace.prepareWorkSpace()
+                script {
+                    sharedLib.workspace.prepareWorkSpace()
+                }
             }
         }
         stage('Linting') {
