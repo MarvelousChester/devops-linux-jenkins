@@ -66,8 +66,8 @@ pipeline {
         stage('Load Shared Library') {
             steps {
                 script {
-                    generalUtil = load("${env.WORKSPACE}/sharedLibraries/src/service/general/sharedLibrary.groovy")
-                    sharedLib = loadSharedLibrary()
+                    sharedLibScript = load("${env.WORKSPACE}/sharedLibraries/src/service/general/sharedLibrary.groovy")
+                    sharedLib = sharedLibScript.loadSharedLibrary()
                 }
             }
         }
