@@ -68,7 +68,7 @@ def runLinting() {
     dir("${REPORT_DIR}") {
         sh 'mkdir -p linting_results'
     }
-    
+
     echo 'running lint script'
     script {
         sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
@@ -187,7 +187,9 @@ pipeline {
         stage('Linting') {
             steps {
                 //Linting
-                runLinting()
+                script {
+                    runLinting()
+                }
             }
         }
         // Runs the project's EditMode tests, and then generates a test report and a code coverage report.
