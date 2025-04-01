@@ -1,7 +1,10 @@
 import groovy.transform.Field
 
+@Field
 def pass = 'Pass'
+@Field
 def fail = 'Fail'
+@Field
 def sharedLib
 @Field
 def generalUtil
@@ -85,12 +88,12 @@ def runLinting() {
                     \'${env.WORKSPACE}/python/linting_error_report.py\' \\
                     \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
                     ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
+                    
                 """
-
                 if (exitCode == 2) {
                     //report was generated call python script {
                     sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                        \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                        \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
                         ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
                         """
                     }
@@ -112,7 +115,7 @@ def runLinting() {
                 """
             }
         }catch (Exception e) {
-            error "Failed for Prepare WORKSPACE: ${e.message}"
+                error "Failed for Prepare WORKSPACE: ${e.message}"
         }
     }
 }
