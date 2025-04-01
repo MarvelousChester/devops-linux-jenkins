@@ -113,6 +113,85 @@ def runLinting() {
     }
 }
 
+def editModeTests() {
+    dir("${env.REPORT_DIR}") {
+        sh 'mkdir -p test_results'
+        sh 'mkdir -p coverage_results'
+    }
+    echo 'Running EditMode tests...'
+    dir("${env.PROJECT_DIR}") {
+        script {
+            String stageName = 'EditMode'
+            String errorMassage = 'EditMode tests failed'
+            unityUtil.runUnityStage(stageName, errorMassage)
+        }
+    }
+}
+
+def playModeTests() {
+    echo 'Running PlayMode tests in Editor environment...'
+    dir("${env.PROJECT_DIR}") {
+        script {
+            String stageName = 'PlayMode'
+            String errorMassage = 'PlayMode tests failed'
+            unityUtil.runUnityStage(stageName, errorMassage)
+        }
+    }
+}
+
+def codeCoverageReport() {
+    dir("${env.PROJECT_DIR}") {
+        echo 'Generating code coverage report...'
+        script {
+            String stageName = 'Coverage'
+            String errorMassage = 'Code Coverage generation failed'
+            unityUtil.runUnityStage(stageName, errorMassage)
+        }
+
+        echo 'Sending test report to Bitbucket.'
+        script {
+            //publish results to web server
+            generalUtil.publishTestResultsHtmlToWebServer(
+                FOLDER_NAME,
+                TICKET_NUMBER,
+                "${env.REPORT_DIR}/coverage_results/Report",
+                'CodeCoverage'
+            )
+            unityUtil.sendTestReport(env.WORKSPACE, env.REPORT_DIR, COMMIT_HASH)
+        }
+    }
+}
+
+def buildProject() {
+    script {
+    echo 'Building Unity project...'
+    //The following line assumed this folder exists in every project, adding check to ensure it does.
+    sh "mkdir -p \"${env.PROJECT_DIR}/Assets/Editor/\""
+    sh "cp Builder.cs \"${env.PROJECT_DIR}/Assets/Editor/\""
+
+    String stageName = 'Webgl'
+    String errorMassage = 'WebGL Build failed'
+    unityUtil.runUnityStage(stageName, errorMassage)
+
+    unityUtil.validateBuildLightingFiles()
+
+    echo 'Sending Bitbucket WebGL build report'
+    String pythonArgs = " ${COMMIT_HASH}" +
+                        " ${env.REPORT_DIR}/build_project_results/*.log"
+
+    // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
+    // groovylint-disable-next-line DuplicateStringLiteral
+    if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
+        pythonArgs += ' --debug'
+        echo "pythonArgs: ${pythonArgs}"
+    }
+    sh " python ${env.WORKSPACE}/python/create_bitbucket_webgl_build_report.py  ${pythonArgs}"
+
+    echo 'Sending WebGL build and build log to dlx-webhost server'
+    generalUtil.publishBuildResultsToWebServer(FOLDER_NAME, TICKET_NUMBER,
+    "${env.PROJECT_DIR}/Builds", "${env.REPORT_DIR}/build_project_results")
+}
+}
 
 pipeline {
     agent any
@@ -197,17 +276,8 @@ pipeline {
         // Sends the test results to Bitbucket once the tests complete.
         stage('EditMode Tests') {
             steps {
-                dir("${REPORT_DIR}") {
-                    sh 'mkdir -p test_results'
-                    sh 'mkdir -p coverage_results'
-                }
-                echo 'Running EditMode tests...'
-                dir("${PROJECT_DIR}") {
-                    script {
-                        String stageName = 'EditMode'
-                        String errorMassage = 'EditMode tests failed'
-                        unityUtil.runUnityStage(stageName, errorMassage)
-                    }
+                script {
+                    editModeTests()
                 }
             }
         }
@@ -215,13 +285,8 @@ pipeline {
         // PlayMode tests need to be run once in the editor to generate the overall coverage report.
         stage('PlayMode Tests in Editor') {
             steps {
-                echo 'Running PlayMode tests in Editor environment...'
-                dir("${PROJECT_DIR}") {
-                    script {
-                        String stageName = 'PlayMode'
-                        String errorMassage = 'PlayMode tests failed'
-                        unityUtil.runUnityStage(stageName, errorMassage)
-                    }
+                script {
+                    playModeTests()
                 }
             }
         }
@@ -229,25 +294,8 @@ pipeline {
         // Then sends a coverage report to Bitbucket.
         stage('Code Coverage\nSend Reports') {
             steps {
-                dir("${PROJECT_DIR}") {
-                    echo 'Generating code coverage report...'
-                    script {
-                        String stageName = 'Coverage'
-                        String errorMassage = 'Code Coverage generation failed'
-                        unityUtil.runUnityStage(stageName, errorMassage)
-                    }
-
-                    echo 'Sending test report to Bitbucket.'
-                    script {
-                        //publish results to web server
-                        generalUtil.publishTestResultsHtmlToWebServer(
-                            FOLDER_NAME,
-                            TICKET_NUMBER,
-                            "${REPORT_DIR}/coverage_results/Report",
-                            'CodeCoverage'
-                        )
-                        unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
-                    }
+                script {
+                    codeCoverageReport()
                 }
             }
         }
@@ -255,32 +303,7 @@ pipeline {
         stage('Build Project') {
             steps {
                 script {
-                    echo 'Building Unity project...'
-                    //The following line assumed this folder exists in every project, adding check to ensure it does.
-                    sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\""
-                    sh "cp Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
-
-                    String stageName = 'Webgl'
-                    String errorMassage = 'WebGL Build failed'
-                    unityUtil.runUnityStage(stageName, errorMassage)
-
-                    unityUtil.validateBuildLightingFiles()
-
-                    echo 'Sending Bitbucket WebGL build report'
-                    String pythonArgs = " ${COMMIT_HASH}" +
-                                        " ${REPORT_DIR}/build_project_results/*.log"
-
-                    // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
-                    // groovylint-disable-next-line DuplicateStringLiteral
-                    if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
-                        pythonArgs += ' --debug'
-                        echo "pythonArgs: ${pythonArgs}"
-                    }
-                    sh " python ${env.WORKSPACE}/python/create_bitbucket_webgl_build_report.py  ${pythonArgs}"
-
-                    echo 'Sending WebGL build and build log to dlx-webhost server'
-                    generalUtil.publishBuildResultsToWebServer(FOLDER_NAME, TICKET_NUMBER,
-                    "${PROJECT_DIR}/Builds", "${REPORT_DIR}/build_project_results")
+                    buildProject()
                 }
             }
         }
