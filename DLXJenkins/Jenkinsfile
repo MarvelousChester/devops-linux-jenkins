@@ -64,6 +64,54 @@ def prepareWorkSpace(){
     }
 }
 
+def runLinting() {
+    dir("${REPORT_DIR}") {
+        sh 'mkdir -p linting_results'
+    }
+    
+    echo 'running lint script'
+    script {
+        sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
+        echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
+        def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
+            \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'""", returnStatus: true
+        echo "After bash call, exit code: ${exitCode}"
+        //handle exit code here
+        if (exitCode != 0) {
+            echo 'Error linting calling report'
+            echo """ Parameters for Python Fail: \\
+                \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+            """
+
+            if (exitCode == 2) {
+                //report was generated call python script {
+                sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                    \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                    ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+                    """
+                }
+
+            catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
+            }
+        }
+        else {
+            echo """ Parameters for Python Pass: \\
+                \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+            """
+            sh script: """python \\
+            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+            \'${REPORT_DIR}/linting_results/format-report.json\' \\
+            ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+            """
+        }
+    }
+}
+
 
 pipeline {
     agent any
@@ -139,53 +187,9 @@ pipeline {
         stage('Linting') {
             steps {
                 //Linting
-                dir("${REPORT_DIR}") {
-                    sh 'mkdir -p linting_results'
-                }
-                echo 'running lint script'
-                script {
-                    sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
-                    echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
-                    def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
-                        \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'""", returnStatus: true
-                    echo "After bash call, exit code: ${exitCode}"
-                    //handle exit code here
-                    if (exitCode != 0) {
-                        echo 'Error linting calling report'
-                        echo """ Parameters for Python Fail: \\
-                            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                            \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                            ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
-                        """
-
-                        if (exitCode == 2) {
-                            //report was generated call python script {
-                            sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                                \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                                ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
-                                """
-                            }
-
-                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
-                            error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
-                        }
-                    }
-                    else {
-                        echo """ Parameters for Python Pass: \\
-                            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                            \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                            ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
-                        """
-                        sh script: """python \\
-                        \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                        \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                        ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
-                        """
-                    }
-                    }
-                }
+                runLinting()
             }
-
+        }
         // Runs the project's EditMode tests, and then generates a test report and a code coverage report.
         // Sends the test results to Bitbucket once the tests complete.
         stage('EditMode Tests') {
