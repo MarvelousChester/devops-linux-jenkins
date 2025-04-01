@@ -69,49 +69,54 @@ def runLinting() {
     dir("${env.REPORT_DIR}") {
         sh 'mkdir -p linting_results'
     }
-
+    
     echo 'running lint script'
     script {
-        sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${env.PROJECT_DIR}\' 2>/dev/null"
-        echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${env.PROJECT_DIR} ${env.REPORT_DIR}"
-        def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
-            \'${env.PROJECT_DIR}\' \'${env.REPORT_DIR}/linting_results\'""", returnStatus: true
-        echo "After bash call, exit code: ${exitCode}"
-        //handle exit code here
-        if (exitCode != 0) {
-            echo 'Error linting calling report'
-            echo """ Parameters for Python Fail: \\
-                \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-                ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
-            """
-
-            if (exitCode == 2) {
-                //report was generated call python script {
-                sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                    \'${REPORT_DIR}/linting_results/format-report.json\' \\
+        try {
+            sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${env.PROJECT_DIR}\' 2>/dev/null"
+            echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${env.PROJECT_DIR} ${env.REPORT_DIR}"
+            def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
+                \'${env.PROJECT_DIR}\' \'${env.REPORT_DIR}/linting_results\'""", returnStatus: true
+            echo "After bash call, exit code: ${exitCode}"
+            //handle exit code here
+            if (exitCode != 0) {
+                echo 'Error linting calling report'
+                echo """ Parameters for Python Fail: \\
+                    \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                    \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
                     ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
-                    """
-                }
+                """
 
-            catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
-                error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
+                if (exitCode == 2) {
+                    //report was generated call python script {
+                    sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                        \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                        ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
+                        """
+                    }
+
+                catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                    error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
+                }
             }
-        }
-        else {
-            echo """ Parameters for Python Pass: \\
+            else {
+                echo """ Parameters for Python Pass: \\
+                    \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                    \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
+                    ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
+                """
+                sh script: """python \\
                 \'${env.WORKSPACE}/python/linting_error_report.py\' \\
                 \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
                 ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
-            """
-            sh script: """python \\
-            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-            \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-            ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
-            """
+                """
+            }
+        }catch (Exception e) {
+            error "Failed for Prepare WORKSPACE: ${e.message}"
         }
     }
 }
+
 
 def editModeTests() {
     dir("${env.REPORT_DIR}") {
