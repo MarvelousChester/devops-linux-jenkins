@@ -9,10 +9,11 @@ def generalUtil
 def unityUtil
 @Field
 def resultStatus
-
+@Field
+def COMMIT_HASH
 
 def prepareWorkSpace(){
-    dir("${PROJECT_DIR}") {
+    dir("${env.PROJECT_DIR}") {
     //send 'In Progress' status to Bitbucket
         script {
             // print jenkins env configurations
@@ -51,7 +52,7 @@ def prepareWorkSpace(){
 
     // Initial running the project on Unity Editor
     echo 'Running Unity in batch mode to setup initial files...'
-    dir("${PROJECT_DIR}") {
+    dir("${env.PROJECT_DIR}") {
         script {
             env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, env.PROJECT_DIR)
         }
@@ -65,31 +66,31 @@ def prepareWorkSpace(){
 }
 
 def runLinting() {
-    dir("${REPORT_DIR}") {
+    dir("${env.REPORT_DIR}") {
         sh 'mkdir -p linting_results'
     }
 
     echo 'running lint script'
     script {
-        sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
-        echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
+        sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${env.PROJECT_DIR}\' 2>/dev/null"
+        echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${env.PROJECT_DIR} ${env.REPORT_DIR}"
         def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
-            \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'""", returnStatus: true
+            \'${env.PROJECT_DIR}\' \'${env.REPORT_DIR}/linting_results\'""", returnStatus: true
         echo "After bash call, exit code: ${exitCode}"
         //handle exit code here
         if (exitCode != 0) {
             echo 'Error linting calling report'
             echo """ Parameters for Python Fail: \\
                 \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+                \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
+                ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
             """
 
             if (exitCode == 2) {
                 //report was generated call python script {
                 sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
                     \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                    ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+                    ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
                     """
                 }
 
@@ -100,13 +101,13 @@ def runLinting() {
         else {
             echo """ Parameters for Python Pass: \\
                 \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                \'${REPORT_DIR}/linting_results/format-report.json\' \\
-                ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+                \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
+                ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
             """
             sh script: """python \\
             \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-            \'${REPORT_DIR}/linting_results/format-report.json\' \\
-            ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+            \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
+            ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
             """
         }
     }
