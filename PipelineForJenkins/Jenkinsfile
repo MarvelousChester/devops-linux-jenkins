@@ -5,6 +5,10 @@ def resultStatus // Use this variable to store the package of result status, wor
 pipeline {
     agent any
 
+    options {
+        timeout(time: 1, unit: 'HOURS')
+    }
+
     tools {
         // Use the configured Groovy tool and JDK 21
         groovy 'Groovy'
