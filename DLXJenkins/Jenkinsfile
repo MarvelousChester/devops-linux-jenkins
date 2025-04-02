@@ -204,6 +204,10 @@ def buildProject() {
 pipeline {
     agent any
 
+    options{
+        timeout(time: 5, unit: 'SECONDS')
+    }
+
     tools {
         dotnetsdk 'dotnet-8'
     }
@@ -255,81 +259,67 @@ pipeline {
     }
 
     stages {
-        timeout(time: 30, unit: 'MINUTES') {
-            stage('Load Shared Library') {
-                steps {
-                    script {
-                        sharedLibScript = load("${env.WORKSPACE}/sharedLibraries/src/service/general/sharedLibrary.groovy")
-                        sharedLib = sharedLibScript.loadSharedLibrary()
-                    }
+        stage('Load Shared Library') {
+            steps {
+                script {
+                    sharedLibScript = load("${env.WORKSPACE}/sharedLibraries/src/service/general/sharedLibrary.groovy")
+                    sharedLib = sharedLibScript.loadSharedLibrary()
                 }
             }
         }
         // Prepare WORKSPACE: Environment Setup, env.WORKSPACE Preparation(Branch Management),
         // Unity Setup, Initial running the project on Unity Editor
-        timeout(time: 10, unit: 'SECONDS') {
-            stage('Prepare WORKSPACE') {
-                steps {
-                    script {
-                        prepareWorkSpace()
-                    }
+        stage('Prepare WORKSPACE') {
+            steps {
+                script {
+                    prepareWorkSpace()
                 }
             }
         }
-        timeout(time: 30, unit: 'MINUTES'){
-            stage('Linting') {
-                steps {
-                    //Linting
-                    script {
-                        runLinting()
-                    }
+        stage('Linting') {
+            steps {
+                //Linting
+                script {
+                    runLinting()
                 }
             }
         }
         // Runs the project's EditMode tests, and then generates a test report and a code coverage report.
         // Sends the test results to Bitbucket once the tests complete.
-        timeout(time: 30, unit: 'MINUTES') {
-            stage('EditMode Tests') {
-                steps {
-                    script {
-                        editModeTests()
-                    }
+        stage('EditMode Tests') {
+            steps {
+                script {
+                    editModeTests()
                 }
             }
         }
         // Runs the project's PlayMode tests, and then generates a code coverage report.
         // PlayMode tests need to be run once in the editor to generate the overall coverage report.
-        timeout(time: 30, unit: 'MINUTES') {
-            stage('PlayMode Tests in Editor') {
-                steps {
-                    script {
-                        playModeTests()
-                    }
+        stage('PlayMode Tests in Editor') {
+            steps {
+                script {
+                    playModeTests()
                 }
             }
         }
         // Merges the two coverage reports from the EditMode and PlayMode (editor) reports into one.
         // Then sends a coverage report to Bitbucket.
-        timeout(time: 30, unit: 'MINUTES') {
-            stage('Code Coverage\nSend Reports') {
-                steps {
-                    script {
-                        codeCoverageReport()
-                    }
+        stage('Code Coverage\nSend Reports') {
+            steps {
+                script {
+                    codeCoverageReport()
                 }
             }
         }
         //Builds the project and saves it.
-        timeout(time: 30, unit: 'MINUTES') {
-            stage('Build Project') {
-                steps {
-                    script {
-                        buildProject()
-                    }
+        stage('Build Project') {
+            steps {
+                script {
+                    buildProject()
                 }
             }
         }
-    }
+        }
 
     // When the pipeline finishes, sends the build status to Bitbucket.
     post {
@@ -356,4 +346,4 @@ pipeline {
             }
         }
     }
-}
+    }
