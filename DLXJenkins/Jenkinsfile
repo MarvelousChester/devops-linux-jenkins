@@ -329,6 +329,7 @@ pipeline {
                 }
             }
         }
+    }
 
     // When the pipeline finishes, sends the build status to Bitbucket.
     post {
@@ -355,4 +356,4 @@ pipeline {
             }
         }
     }
-    }
+}
