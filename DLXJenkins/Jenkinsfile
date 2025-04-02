@@ -1,210 +1,14 @@
-import groovy.transform.Field
-
-@Field
 def pass = 'Pass'
-@Field
 def fail = 'Fail'
-@Field
-def sharedLib
-@Field
 def generalUtil
-@Field
 def unityUtil
-@Field
+def sharedLib
 def resultStatus
-@Field
-def COMMIT_HASH
-
-def prepareWorkSpace(){
-    dir("${env.PROJECT_DIR}") {
-    //send 'In Progress' status to Bitbucket
-        script {
-            // print jenkins env configurations
-            sh 'env'
-            try {
-                // Load the necessary packages
-                resultStatus = sharedLib.resource.ResultStatus
-
-                generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
-                unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
-
-                if (generalUtil.isBranchUpToDateWithRemote(params.PR_BRANCH) && !params.TEST_RUN.equals('Y')) {
-                    echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
-                    currentBuild.result = resultStatus.BUILD_STATUS.ABORTED
-                    error('Branch is up to date, no changes.')
-                }
-
-                COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, params.PR_COMMIT)
-
-                generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, params.PR_BRANCH)
-
-                generalUtil.cloneOrUpdateRepo(env.PROJECT_TYPE, env.WORKSPACE, env.PROJECT_DIR, env.REPO_SSH, params.PR_BRANCH)
-
-                generalUtil.mergeBranchIfNeeded()
-            } catch (Exception e) {
-                error "Failed for Prepare WORKSPACE: ${e.message}"
-            }
-        }
-    }
-
-    // Unity Setup: Identify the version of Unity Editor for the project
-    echo 'Identifying Unity version...'
-    script {
-        env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, env.PROJECT_DIR)
-    }
-
-    // Initial running the project on Unity Editor
-    echo 'Running Unity in batch mode to setup initial files...'
-    dir("${env.PROJECT_DIR}") {
-        script {
-            env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, env.PROJECT_DIR)
-        }
-
-        script {
-            String stageName = 'Rider'
-            String errorMassage = 'Synchronizing Unity and Rider IDE solution files failed'
-            unityUtil.runUnityStage(stageName, errorMassage)
-        }
-    }
-}
-
-def runLinting() {
-    dir("${env.REPORT_DIR}") {
-        sh 'mkdir -p linting_results'
-    }
-    
-    echo 'running lint script'
-    script {
-        try {
-            sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${env.PROJECT_DIR}\' 2>/dev/null"
-            echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${env.PROJECT_DIR} ${env.REPORT_DIR}"
-            def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
-                \'${env.PROJECT_DIR}\' \'${env.REPORT_DIR}/linting_results\'""", returnStatus: true
-            echo "After bash call, exit code: ${exitCode}"
-            //handle exit code here
-            if (exitCode != 0) {
-                echo 'Error linting calling report'
-                echo """ Parameters for Python Fail: \\
-                    \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                    \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-                    ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
-                    
-                """
-                if (exitCode == 2) {
-                    //report was generated call python script {
-                    sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                        \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-                        ${COMMIT_HASH} ${fail} \'${env.PROJECT_DIR}\'
-                        """
-                    }
-
-                catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
-                    error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
-                }
-            }
-            else {
-                echo """ Parameters for Python Pass: \\
-                    \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                    \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-                    ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
-                """
-                sh script: """python \\
-                \'${env.WORKSPACE}/python/linting_error_report.py\' \\
-                \'${env.REPORT_DIR}/linting_results/format-report.json\' \\
-                ${COMMIT_HASH} ${pass} \'${env.PROJECT_DIR}\'
-                """
-            }
-        }catch (Exception e) {
-                error "Failed for Prepare WORKSPACE: ${e.message}"
-        }
-    }
-}
-
-
-def editModeTests() {
-    dir("${env.REPORT_DIR}") {
-        sh 'mkdir -p test_results'
-        sh 'mkdir -p coverage_results'
-    }
-    echo 'Running EditMode tests...'
-    dir("${env.PROJECT_DIR}") {
-        script {
-            String stageName = 'EditMode'
-            String errorMassage = 'EditMode tests failed'
-            unityUtil.runUnityStage(stageName, errorMassage)
-        }
-    }
-}
-
-def playModeTests() {
-    echo 'Running PlayMode tests in Editor environment...'
-    dir("${env.PROJECT_DIR}") {
-        script {
-            String stageName = 'PlayMode'
-            String errorMassage = 'PlayMode tests failed'
-            unityUtil.runUnityStage(stageName, errorMassage)
-        }
-    }
-}
-
-def codeCoverageReport() {
-    dir("${env.PROJECT_DIR}") {
-        echo 'Generating code coverage report...'
-        script {
-            String stageName = 'Coverage'
-            String errorMassage = 'Code Coverage generation failed'
-            unityUtil.runUnityStage(stageName, errorMassage)
-        }
-
-        echo 'Sending test report to Bitbucket.'
-        script {
-            //publish results to web server
-            generalUtil.publishTestResultsHtmlToWebServer(
-                FOLDER_NAME,
-                TICKET_NUMBER,
-                "${env.REPORT_DIR}/coverage_results/Report",
-                'CodeCoverage'
-            )
-            unityUtil.sendTestReport(env.WORKSPACE, env.REPORT_DIR, COMMIT_HASH)
-        }
-    }
-}
-
-def buildProject() {
-    script {
-    echo 'Building Unity project...'
-    //The following line assumed this folder exists in every project, adding check to ensure it does.
-    sh "mkdir -p \"${env.PROJECT_DIR}/Assets/Editor/\""
-    sh "cp Builder.cs \"${env.PROJECT_DIR}/Assets/Editor/\""
-
-    String stageName = 'Webgl'
-    String errorMassage = 'WebGL Build failed'
-    unityUtil.runUnityStage(stageName, errorMassage)
-
-    unityUtil.validateBuildLightingFiles()
-
-    echo 'Sending Bitbucket WebGL build report'
-    String pythonArgs = " ${COMMIT_HASH}" +
-                        " ${env.REPORT_DIR}/build_project_results/*.log"
-
-    // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
-    // groovylint-disable-next-line DuplicateStringLiteral
-    if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
-        pythonArgs += ' --debug'
-        echo "pythonArgs: ${pythonArgs}"
-    }
-    sh " python ${env.WORKSPACE}/python/create_bitbucket_webgl_build_report.py  ${pythonArgs}"
-
-    echo 'Sending WebGL build and build log to dlx-webhost server'
-    generalUtil.publishBuildResultsToWebServer(FOLDER_NAME, TICKET_NUMBER,
-    "${env.PROJECT_DIR}/Builds", "${env.REPORT_DIR}/build_project_results")
-}
-}
 
 pipeline {
     agent any
 
-    options{
+    options {
         timeout(time: 5, unit: 'SECONDS')
     }
 
@@ -262,8 +66,31 @@ pipeline {
         stage('Load Shared Library') {
             steps {
                 script {
-                    sharedLibScript = load("${env.WORKSPACE}/sharedLibraries/src/service/general/sharedLibrary.groovy")
-                    sharedLib = sharedLibScript.loadSharedLibrary()
+                    try {
+                        def LIBRARY_PATH = 'sharedLibraries'
+                        echo "Loading local shared library from ${WORKSPACE}/${LIBRARY_PATH}"
+
+                        // Create temporary Git repository
+                        sh """
+                            cd ${WORKSPACE}/${LIBRARY_PATH} && \
+                            (rm -rf .git || true) && \
+                            git init && \
+                            git add --all && \
+                            git commit -m 'init'
+                        """
+
+                        // Get the path of the temporary Git repository
+                        def repoPath = sh(returnStdout: true, script: 'pwd').trim() + "/${LIBRARY_PATH}"
+
+                        // Shared Library Registration
+                        sharedLib = library identifier: 'local-lib@master',
+                                retriever: modernSCM([$class: 'GitSCMSource', remote: "${repoPath}"]),
+                                changelog: false
+                        echo 'Successfully loaded shared library'
+                    } catch (Exception e) {
+                        echo "Failed to load shared library: ${e.message}"
+                        error('Shared Library Loading Failed')
+                    }
                 }
             }
         }
@@ -271,25 +98,123 @@ pipeline {
         // Unity Setup, Initial running the project on Unity Editor
         stage('Prepare WORKSPACE') {
             steps {
+                dir("${PROJECT_DIR}") {
+                    //send 'In Progress' status to Bitbucket
+                    script {
+                        // print jenkins env configurations
+                        sh 'env'
+                        try {
+                            // Load the necessary packages
+                            resultStatus = sharedLib.resource.ResultStatus
+
+                            generalUtil = load("${env.WORKSPACE}/groovy/generalHelper.groovy")
+                            unityUtil = load("${env.WORKSPACE}/groovy/unityHelper.groovy")
+
+                            if (generalUtil.isBranchUpToDateWithRemote(PR_BRANCH) && !TEST_RUN.equals('Y')) {
+                                echo 'Local branch commit is up to date with remote branch, no changes. Aborting pipeline.'
+                                currentBuild.result = resultStatus.BUILD_STATUS.ABORTED
+                                error('Branch is up to date, no changes.')
+                            }
+
+                            COMMIT_HASH = generalUtil.getFullCommitHash(env.WORKSPACE, PR_COMMIT)
+
+                            generalUtil.initializeEnvironment(env.WORKSPACE, COMMIT_HASH, PR_BRANCH)
+
+                            generalUtil.cloneOrUpdateRepo(PROJECT_TYPE, env.WORKSPACE, PROJECT_DIR, REPO_SSH, PR_BRANCH)
+
+                            generalUtil.mergeBranchIfNeeded()
+                        } catch (Exception e) {
+                            error "Failed for Prepare WORKSPACE: ${e.message}"
+                        }
+                    }
+                }
+
+                // Unity Setup: Identify the version of Unity Editor for the project
+                echo 'Identifying Unity version...'
                 script {
-                    prepareWorkSpace()
+                    env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
+                }
+
+                // Initial running the project on Unity Editor
+                echo 'Running Unity in batch mode to setup initial files...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        env.UNITY_EXECUTABLE = unityUtil.getUnityExecutable(env.WORKSPACE, PROJECT_DIR)
+                    }
+
+                    script {
+                        String stageName = 'Rider'
+                        String errorMassage = 'Synchronizing Unity and Rider IDE solution files failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
+                    }
                 }
             }
         }
         stage('Linting') {
             steps {
                 //Linting
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p linting_results'
+                }
+                echo 'running lint script'
                 script {
-                    runLinting()
+                    sh "cp -f \'${env.WORKSPACE}/Bash/.editorconfig\' \'${PROJECT_DIR}\' 2>/dev/null"
+                    echo "Parameters for bash: ${env.WORKSPACE}/Linting.bash ${PROJECT_DIR} ${REPORT_DIR}"
+                    def exitCode = sh script: """ sh \'${env.WORKSPACE}/Bash/Linting.bash\' \\
+                        \'${PROJECT_DIR}\' \'${REPORT_DIR}/linting_results\'""", returnStatus: true
+                    echo "After bash call, exit code: ${exitCode}"
+                    //handle exit code here
+                    if (exitCode != 0) {
+                        echo 'Error linting calling report'
+                        echo """ Parameters for Python Fail: \\
+                            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                            \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                            ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+                        """
+
+                        if (exitCode == 2) {
+                            //report was generated call python script {
+                            sh script: """python \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                                \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                                ${COMMIT_HASH} ${fail} \'${PROJECT_DIR}\'
+                                """
+                            }
+
+                        catchError(buildResult: resultStatus.BUILD_STATUS.SUCCESS, stageResult: resultStatus.STAGE_STATUS.FAILURE) {
+                            error("Linting failed with exit code: ${exitCode}") //we exit no matter what on error code != 0
+                        }
+                    }
+                    else {
+                        echo """ Parameters for Python Pass: \\
+                            \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                            \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                            ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+                        """
+                        sh script: """python \\
+                        \'${env.WORKSPACE}/python/linting_error_report.py\' \\
+                        \'${REPORT_DIR}/linting_results/format-report.json\' \\
+                        ${COMMIT_HASH} ${pass} \'${PROJECT_DIR}\'
+                        """
+                    }
+                    }
                 }
             }
-        }
+
         // Runs the project's EditMode tests, and then generates a test report and a code coverage report.
         // Sends the test results to Bitbucket once the tests complete.
         stage('EditMode Tests') {
             steps {
-                script {
-                    editModeTests()
+                dir("${REPORT_DIR}") {
+                    sh 'mkdir -p test_results'
+                    sh 'mkdir -p coverage_results'
+                }
+                echo 'Running EditMode tests...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        String stageName = 'EditMode'
+                        String errorMassage = 'EditMode tests failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
+                    }
                 }
             }
         }
@@ -297,8 +222,13 @@ pipeline {
         // PlayMode tests need to be run once in the editor to generate the overall coverage report.
         stage('PlayMode Tests in Editor') {
             steps {
-                script {
-                    playModeTests()
+                echo 'Running PlayMode tests in Editor environment...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        String stageName = 'PlayMode'
+                        String errorMassage = 'PlayMode tests failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
+                    }
                 }
             }
         }
@@ -306,8 +236,25 @@ pipeline {
         // Then sends a coverage report to Bitbucket.
         stage('Code Coverage\nSend Reports') {
             steps {
-                script {
-                    codeCoverageReport()
+                dir("${PROJECT_DIR}") {
+                    echo 'Generating code coverage report...'
+                    script {
+                        String stageName = 'Coverage'
+                        String errorMassage = 'Code Coverage generation failed'
+                        unityUtil.runUnityStage(stageName, errorMassage)
+                    }
+
+                    echo 'Sending test report to Bitbucket.'
+                    script {
+                        //publish results to web server
+                        generalUtil.publishTestResultsHtmlToWebServer(
+                            FOLDER_NAME,
+                            TICKET_NUMBER,
+                            "${REPORT_DIR}/coverage_results/Report",
+                            'CodeCoverage'
+                        )
+                        unityUtil.sendTestReport(env.WORKSPACE, REPORT_DIR, COMMIT_HASH)
+                    }
                 }
             }
         }
@@ -315,7 +262,32 @@ pipeline {
         stage('Build Project') {
             steps {
                 script {
-                    buildProject()
+                    echo 'Building Unity project...'
+                    //The following line assumed this folder exists in every project, adding check to ensure it does.
+                    sh "mkdir -p \"${PROJECT_DIR}/Assets/Editor/\""
+                    sh "cp Builder.cs \"${PROJECT_DIR}/Assets/Editor/\""
+
+                    String stageName = 'Webgl'
+                    String errorMassage = 'WebGL Build failed'
+                    unityUtil.runUnityStage(stageName, errorMassage)
+
+                    unityUtil.validateBuildLightingFiles()
+
+                    echo 'Sending Bitbucket WebGL build report'
+                    String pythonArgs = " ${COMMIT_HASH}" +
+                                        " ${REPORT_DIR}/build_project_results/*.log"
+
+                    // Pass '--debug' flag to create_bitbucket_coverage_report.py when a developer enable 'DEBUG_MODE'
+                    // groovylint-disable-next-line DuplicateStringLiteral
+                    if ((params.DEBUG_MODE ?: '').toUpperCase() == 'Y') {
+                        pythonArgs += ' --debug'
+                        echo "pythonArgs: ${pythonArgs}"
+                    }
+                    sh " python ${env.WORKSPACE}/python/create_bitbucket_webgl_build_report.py  ${pythonArgs}"
+
+                    echo 'Sending WebGL build and build log to dlx-webhost server'
+                    generalUtil.publishBuildResultsToWebServer(FOLDER_NAME, TICKET_NUMBER,
+                    "${PROJECT_DIR}/Builds", "${REPORT_DIR}/build_project_results")
                 }
             }
         }
